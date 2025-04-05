@@ -4,15 +4,32 @@ dataset:
   split_names: ["train", "dev", "test"]
   max_num_options: 4
 
+resources:
+  cache_dir: "/usr/local/data/xingshen/.cache"  # change this to your cache path
+  action_port: 8000  # change this to your port, e.g., 8000
+  downstream_port: 8001  # change this to your port, e.g., 8001
+  action_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
+  downstream_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
+  # the following CUDA devices are used for different components, no overlap is allowed
+  policy_cuda: "2"  # change this to your CUDA device id, e.g., "3,4,5"
+  action_cuda: "0"  # change this to your CUDA device id, e.g., "0"
+  downstream_cuda: "1"  # change this to your CUDA device id, e.g., "1,2"
+
 model:
-  policy: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"  # change this to your model path
-  downstream: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"  # change this to your model path
+  policy: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"  # change this to your model path
+  downstream: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"  # change this to your model path
 
 train:  # for more details, please refer to the GRPOConfig class from TRL
   logging_steps: 10
   gen_temperature: 0.1  # can try to lower this value
   top_p: 0.95
   top_k: 50
-  use_vllm: true
+  use_vllm: false
   learning_rate: 1e-6
   scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
+
+downstream:
+  gen_temperature: 0.1  # can try to lower this value
+  top_p: 0.95
+  top_k: 50
+  max_tokens: 2048 # can be adjusted

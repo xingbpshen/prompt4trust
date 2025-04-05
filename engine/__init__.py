@@ -2,6 +2,9 @@ import numpy as np
 import os
 from prompt import get_match_pattern
 import re
+from openai import OpenAI
+import time
+import util
 
 
 def accuracy(gt_answers, lm_answers):
@@ -77,9 +80,9 @@ def init_log_path(log_path, args):
 
 
 def parse_answer_prob(text):
-    match = re.search(r"answer is (\d+(?:\.\d+)?) with confidence (\d+(?:\.\d+)?)", text)
+    match = re.search(get_match_pattern(), text)
     if match:
-        number = float(match.group(1))
+        number = int(match.group(1))
         confidence = float(match.group(2))
         return number, confidence
     else:
@@ -87,16 +90,34 @@ def parse_answer_prob(text):
         return np.random.randint(1, 5), 0
 
 
-def reward_func(completions, question, gt_answer, options, **kwargs):
+def is_ready(port):
     """
-    Reward function for the LLM. The reward function is used to evaluate the quality of the completions.
-    :param completions: list of completions from the LLM, it is a list of dicts if conversation is used
-    :param question: list of question text
-    :param gt_answer: list of ground truth answers for the question
-    :param options: list of options (list of strings) for the question
-    :param kwargs: other arguments
-    :return: The function must return a list of floats. Each float represents the reward corresponding to a single completion.
+    Check if the vllm server is ready to accept requests.
+    :param port: The port on which the vllm server is running.
+    :return: True if the server is ready, False otherwise.
     """
-    # Implement the reward function logic here
-    # the completions are used for another LLM as prompt
-    pass
+    client = OpenAI(api_key='EMPTY', base_url=f'http://localhost:{port}/v1')
+    try:
+        models = client.models.list()
+        if models.data:
+            return True
+    except Exception as e:
+        if 'Connection error' in str(e):
+            return False
+        else:
+            return True
+
+
+def wait_until_ready(port, timeout=300):
+    """
+    Wait until the vllm server is ready to accept requests.
+    :param port: The port on which the vllm server is running.
+    :param timeout: The maximum time to wait in seconds.
+    """
+    start_time = time.time()
+    while not is_ready(port):
+        if time.time() - start_time > 10:
+            util.info('engine.__init__.py', 'Still waiting? Check the GPU mem usage to make sure no server is lost.')
+        if time.time() - start_time > timeout:
+            raise TimeoutError(f"Server at port {port} did not become ready within {timeout} seconds.")
+        time.sleep(10)
