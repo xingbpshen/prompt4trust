@@ -1,0 +1,5 @@
+dataset:
+  name: "medmcqa"
+  local_path: "./data/medmcqa/"
+  split_names: ["train", "dev", "test"]
+  max_num_options: 4
