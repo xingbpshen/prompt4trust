@@ -23,6 +23,9 @@ def parse_args_and_config():
         help="A string for documentation purpose. "
         "Will be the name of the folder inside the log folder and the comet trial name.",
     )
+    parser.add_argument("--train", action="store_true", help="Whether to train")
+    parser.add_argument("--ctrain", action="store_true", help="Whether to continue training")
+    parser.add_argument("--test", action="store_true", help="Whether to test")
     parser.add_argument(
         "--comment", type=str, default="", help="A string for experiment comment"
     )
@@ -35,6 +38,9 @@ def parse_args_and_config():
     )
 
     args = parser.parse_args()
+    # check if only one is True from "train", "ctrain", "test"
+    if sum([args.train, args.ctrain, args.test]) != 1:
+        raise ValueError("Exactly one of --train, --ctrain, or --test must be specified.")
 
     # parse config file
     with open(os.path.join("configs", args.config), "r") as f:

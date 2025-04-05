@@ -3,3 +3,16 @@ dataset:
   local_path: "./data/medmcqa/"
   split_names: ["train", "dev", "test"]
   max_num_options: 4
+
+model:
+  policy: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"  # change this to your model path
+  downstream: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"  # change this to your model path
+
+train:  # for more details, please refer to the GRPOConfig class from TRL
+  logging_steps: 10
+  gen_temperature: 0.1  # can try to lower this value
+  top_p: 0.95
+  top_k: 50
+  use_vllm: true
+  learning_rate: 1e-6
+  scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
