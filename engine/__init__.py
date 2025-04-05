@@ -87,7 +87,16 @@ def parse_answer_prob(text):
         return np.random.randint(1, 5), 0
 
 
-def reward_func(completions, gt_answer, options, **kwargs):
+def reward_func(completions, question, gt_answer, options, **kwargs):
+    """
+    Reward function for the LLM. The reward function is used to evaluate the quality of the completions.
+    :param completions: list of completions from the LLM, it is a list of dicts if conversation is used
+    :param question: list of question text
+    :param gt_answer: list of ground truth answers for the question
+    :param options: list of options (list of strings) for the question
+    :param kwargs: other arguments
+    :return: The function must return a list of floats. Each float represents the reward corresponding to a single completion.
+    """
     # Implement the reward function logic here
     # the completions are used for another LLM as prompt
     pass
