@@ -1,0 +1,7 @@
+python>=3.10
+trl>=0.16
+torch
+numpy
+tqdm
+notebook
+vllm
