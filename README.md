@@ -38,6 +38,8 @@ Here are some important parameters you may want to modify:
 - `resources.downstream_cuda` This is a string of CUDA devices used for the downstream LLM (to obtain reward). Make sure you have enough memory on these devices.
 - `model.policy` and `model.downstream` are the model names. You can use any model name supported by Hugging Face or a path to a local model (e.g., `"meta-llama/Llama-3.1-8B-Instruct"` or `"/usr/local/data/Llama-3.1-8B-Instruct"`).
 
+Please note that `resources.policy_cuda`, `resources.action_cuda`, and `resources.downstream_cuda` **must not include any overlapping device** to avoid CUDA initialization error.
+
 ## 2. Training
 ### 2.1 Starting two servers
 To enable TRL with vLLM serving, you need to start two servers: one for the policy model (to sample action) and one for the downstream LLM to calculate reward. You can use the following commands to start the servers:
