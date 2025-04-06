@@ -28,8 +28,11 @@ class Agent:
         :param message: a dict of conversation, e.g. {'role': 'user', 'content': 'How to cook chicken curry?'}
         :return: the response from the downstream model, pure text
         """
-        models = self.downstream_model.models.list()
-        model = models.data[0].id
+        if self.args.is_closed_source_downstream:
+            model = self.config.model.downstream
+        else:
+            models = self.downstream_model.models.list()
+            model = models.data[0].id
         chat_completion = self.downstream_model.chat.completions.create(model=model,
                                                                         temperature=self.config.downstream.gen_temperature,
                                                                         top_p=self.config.downstream.top_p,
