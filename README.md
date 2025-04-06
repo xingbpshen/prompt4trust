@@ -40,7 +40,7 @@ Here are some important parameters you may want to modify:
 - `resources.policy_cuda` This is a string of CUDA devices (e.g., `"3,4,5"` or `"3"`) used for the policy update/training. Make sure you have enough memory on these devices.
 - `resources.action_cuda` This is a string of CUDA devices used for the TRL with vLLM serving to sample "actions" (in the context of reinforcement learning). Make sure you have enough memory on these devices.
 - `resources.downstream_cuda` This is a string of CUDA devices used for the downstream LLM (to obtain reward). Make sure you have enough memory on these devices. This field is ignored if you are using closed-source LLMs as downstream.
-- `model.policy` This is the model name. You can use any model name supported by Hugging Face or a path to a local model (e.g., `"meta-llama/Llama-3.1-8B-Instruct"` or `"/usr/local/data/Llama-3.1-8B-Instruct"`).
+- `model.policy` This is the model name. You can use any repository name supported by Hugging Face or a path to a local model (e.g., `"meta-llama/Llama-3.1-8B-Instruct"` or `"/usr/local/data/Llama-3.1-8B-Instruct"`).
 - `model.downstream` This is the model name. You can use any model name supported by Hugging Face or a path to a local model, or a closed-source model such as `gemini-2.0-flash-001`.
 - `api_key.openai` and `api_key.google` If you specified a closed-source LLM as downstream in `model.downstream`, you need to provide the API key for the model. You can obtain the API key from the respective provider. If you are using open-source LLMs, you can leave these fields empty.
 
