@@ -22,6 +22,7 @@ Supported closed-source LLMs as downstream:
 
 ## 1. Preparation
 ### 1.1 Installation
+It is recommended to use a virtual environment (e.g., `venv`) to avoid package conflicts. Here we assume you are using `venv` as your virtual environment. If you are using `conda`, please adjust the commands accordingly.
 ```bash
 git clone https://github.com/xingbpshen/vccrl-llm.git
 cd vccrl-llm/
@@ -42,23 +43,23 @@ Here are some important parameters you may want to modify:
 - `resources.action_cuda` This is a string of CUDA devices used for the TRL with vLLM serving to sample "actions" (in the context of reinforcement learning). Make sure you have enough memory on these devices.
 - `resources.downstream_cuda` This is a string of CUDA devices used for the downstream LLM (to obtain reward). Make sure you have enough memory on these devices. This field is ignored if you are using closed-source LLMs as downstream.
 - `model.policy` This is the model name. You can use any repository name supported by Hugging Face or a path to a local model (e.g., `"meta-llama/Llama-3.1-8B-Instruct"` or `"/usr/local/data/Llama-3.1-8B-Instruct"`).
-- `model.downstream` This is the model name. You can use any model name supported by Hugging Face or a path to a local model, or a closed-source model such as `gemini-2.0-flash-001`.
+- `model.downstream` This is the model name. You can use any repository name supported by Hugging Face or a path to a local model, or a closed-source model such as `gemini-2.0-flash-001`.
 - `api_key.openai` and `api_key.google` If you specified a closed-source LLM as downstream in `model.downstream`, you need to provide the API key for the model. You can obtain the API key from the respective provider. If you are using open-source LLMs, you can leave these fields empty.
 
 Please note that `resources.policy_cuda`, `resources.action_cuda`, and `resources.downstream_cuda` **must not include any overlapping device** to avoid CUDA initialization error.
 
 ## 2. Training
-### 2.1 Starting servers
-To enable TRL with vLLM serving, you need to start **2** (or **1** if you are using closed-source LLM as downstream) servers: one for the policy model (to sample action) and one for the downstream LLM to calculate reward. You can use the following commands to start the servers:
-```bash
-python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train --component 0
-```
-Runtime related logs will be saved in `{LOG_FOLDER}/{TRIAL_NAME}/` folder.
-
-Running the above command once will start **2** (or **1**) detached subprocesses, each corresponding to one of the servers. You can observe the GPU memory usage increasing in the terminal. You can use `nvidia-smi` to check the GPU memory usage for your specified CUDA devices `resources.action_cuda` and `resources.downstream_cuda`.
+### 2.1 About vLLM serving
+To enable TRL with vLLM serving, we need to start **2** (or **1** if you are using closed-source LLM as downstream) servers: one for the policy model (to sample action) and one for the downstream LLM to calculate reward.
 ### 2.2 Training the policy model
 By default, the policy model will be trained with GRPO using TRL support. Run the following command to start training:
 ```bash
-accelerate launch main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train --component 1
+python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train
 ```
-Please test it out and let me know (by raising a GitHub issue) if you encounter any issues.
+Running the above command once will start:
+- **2** (or **1**) detached subprocesses for vLLMs, each corresponding to one of the servers. You can observe the GPU memory usage increasing in the terminal. You can use `nvidia-smi` to check the GPU memory usage for your specified CUDA devices `resources.action_cuda` and `resources.downstream_cuda`.
+- **1** foreground engine subprocess for TRL, which will be responsible for the training of the policy model. You can observe the GPU memory usage (on your specified CUDA devices `resources.policy_cuda`) increasing in the terminal.
+
+Runtime related logs will be saved in `{LOG_FOLDER}/{TRIAL_NAME}/` folder.
+
+Please test it out and let me know (by raising a GitHub issue) if you encounter any issue.
