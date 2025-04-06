@@ -51,6 +51,8 @@ Please note that `resources.policy_cuda`, `resources.action_cuda`, and `resource
 ## 2. Training
 ### 2.1 About vLLM serving
 To enable TRL with vLLM serving, we need to start **2** (or **1** if you are using closed-source LLM as downstream) servers: one for the policy model (to sample action) and one for the downstream LLM to calculate reward.
+
+These servers will be started automatically so you do not need to do anything now.
 ### 2.2 Training the policy model
 By default, the policy model will be trained with GRPO using TRL support. Run the following command to start training:
 ```bash
