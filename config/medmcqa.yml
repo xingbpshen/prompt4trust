@@ -16,15 +16,22 @@ resources:
   downstream_cuda: "1"  # change this to your CUDA device id, e.g., "1,2"
 
 model:
-  policy: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"  # change this to your model path
-  downstream: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"  # change this to your model path
+  # change this to your model path or HF model name
+  policy: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"
+  # change this to your model path or HF model name or closed-source model name such as "gemini-2.0-flash-001"
+  downstream: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"
+
+# if the downstream model is a closed-source model, please set the following parameters
+api_key:
+  openai: "sk-..."  # change this to your OpenAI API key
+  google: "..."  # change this to your Google API key
 
 train:  # for more details, please refer to the GRPOConfig class from TRL
   logging_steps: 10
   gen_temperature: 0.1  # can try to lower this value
   top_p: 0.95
   top_k: 50
-  use_vllm: false
+  use_vllm: true  # do not change this
   learning_rate: 1e-6
   scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
 

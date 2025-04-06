@@ -2,6 +2,7 @@ data/medmcqa/
 demo.ipynb
 test.py
 test2.py
+test3.py
 
 *.zip
 *.idea

@@ -46,6 +46,9 @@ def parse_args_and_config():
         config = yaml.safe_load(f)
     new_config = dict2namespace(config)
 
+    # add argument for closed source downstream
+    args.is_closed_source_downstream = util.is_closed_source_model(new_config.model.downstream)
+
     # set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -89,29 +92,31 @@ def main():
                              stderr=subprocess.DEVNULL,
                              start_new_session=True)
 
-            env2 = os.environ.copy()
             # deploy vLLM for downstream, use by "python main.py"
-            env2["CUDA_VISIBLE_DEVICES"] = config.resources.downstream_cuda
-            num_gpus = len(config.resources.downstream_cuda.split(","))
-            env2["XDG_CACHE_HOME"] = config.resources.cache_dir
-            # run vllm serve
-            subprocess.Popen(["vllm",
-                              "serve",
-                              config.model.downstream,
-                              f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
-                              f"--tensor_parallel_size={num_gpus}",
-                              f"--port={config.resources.downstream_port}"],
-                             env=env2,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            if not args.is_closed_source_downstream:
+                env2 = os.environ.copy()
+                env2["CUDA_VISIBLE_DEVICES"] = config.resources.downstream_cuda
+                num_gpus = len(config.resources.downstream_cuda.split(","))
+                env2["XDG_CACHE_HOME"] = config.resources.cache_dir
+                # run vllm serve
+                subprocess.Popen(["vllm",
+                                  "serve",
+                                  config.model.downstream,
+                                  f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
+                                  f"--tensor_parallel_size={num_gpus}",
+                                  f"--port={config.resources.downstream_port}"],
+                                 env=env2,
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
         elif args.component == 1:  # deploy TRL for policy update/training, use by "accelerate launch main.py"
-            # check if two ports are available for querying
-            util.info('main.py', 'Waiting for vLLM to be ready (for downstream)...')
-            wait_until_ready(port=config.resources.downstream_port)
+            if not args.is_closed_source_downstream:
+                # check if two ports are available for querying
+                util.info('main.py', 'Waiting for vLLM to be ready (for downstream)...')
+                wait_until_ready(port=config.resources.downstream_port)
             util.info('main.py', 'Waiting for TRL vLLM-Serve to be ready (for action sampling)...')
             wait_until_ready(port=config.resources.action_port)
-            util.info('main.py', 'Both vLLMs are ready!')
+            util.info('main.py', 'vLLMs are ready!')
             os.environ["CUDA_VISIBLE_DEVICES"] = config.resources.policy_cuda
             os.environ["XDG_CACHE_HOME"] = config.resources.cache_dir
             agent = Agent(args, config)

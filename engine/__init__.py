@@ -121,3 +121,15 @@ def wait_until_ready(port, timeout=300):
         if time.time() - start_time > timeout:
             raise TimeoutError(f"Server at port {port} did not become ready within {timeout} seconds.")
         time.sleep(10)
+
+
+def is_supported_closed_source_model(model_name):
+    """
+    Returns the provider name and base_url of the closed source model if it is supported.
+    """
+    if model_name in ['gemini-2.0-flash-001']:
+        return 'google', 'https://generativelanguage.googleapis.com/v1beta/openai/'
+    elif model_name in ['gpt-4o-mini-2024-07-18']:
+        return 'openai', None
+    else:
+        raise ValueError(f"Closed-source model {model_name} is not supported.")

@@ -1,5 +1,5 @@
 from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob
+from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model
 import os
 import dataset
 from prompt import build_downstream_prompt
@@ -13,8 +13,14 @@ class Agent:
         self.config = config
         self.log_path = os.path.join(args.log_folder, args.trial_name)
         init_log_path(self.log_path, args)
-        self.downstream_model = OpenAI(api_key='EMPTY',
-                                       base_url=f'http://localhost:{config.resources.downstream_port}/v1')
+        if args.is_closed_source_downstream:
+            provider, base_url = is_supported_closed_source_model(config.model.downstream)
+            api_key = getattr(config.api_key, provider)
+        else:
+            api_key = 'EMPTY'
+            base_url = f'http://localhost:{config.resources.downstream_port}/v1'
+        self.downstream_model = OpenAI(api_key=api_key,
+                                       base_url=base_url)
 
     def send_message_downstream(self, message):
         """
