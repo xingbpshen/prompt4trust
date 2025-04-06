@@ -34,6 +34,9 @@ train:  # for more details, please refer to the GRPOConfig class from TRL
   use_vllm: true  # do not change this
   learning_rate: 1e-6
   scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
+  max_prompt_length: 2048  # can be adjusted
+  max_completion_length: 2048  # can be adjusted
+  num_generations: 8  # do not change this
 
 downstream:
   gen_temperature: 0.1  # can try to lower this value

@@ -87,7 +87,10 @@ class Agent:
                                     top_k=self.config.train.top_k,
                                     use_vllm=self.config.train.use_vllm,
                                     learning_rate=self.config.train.learning_rate,
-                                    scale_rewards=self.config.train.scale_rewards)
+                                    scale_rewards=self.config.train.scale_rewards,
+                                    max_prompt_length=self.config.train.max_prompt_length,
+                                    max_completion_length=self.config.train.max_completion_length,
+                                    num_generations=self.config.train.num_generations)
         trainer = GRPOTrainer(model=self.config.model.policy,
                               reward_funcs=self.reward_func,
                               args=trainer_config,
