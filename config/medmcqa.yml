@@ -11,7 +11,7 @@ resources:
   action_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
   downstream_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
   # the following CUDA devices are used for different components, no overlap is allowed
-  policy_cuda: "2"  # change this to your CUDA device id, e.g., "3,4,5"
+  policy_cuda: "2"  # change this to your CUDA device id, e.g., "3,4"
   action_cuda: "0"  # change this to your CUDA device id, e.g., "0"
   downstream_cuda: "1"  # change this to your CUDA device id, e.g., "1,2"
 

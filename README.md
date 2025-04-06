@@ -39,7 +39,7 @@ The config files are located at `config/`. You can modify the parameters accordi
 
 Here are some important parameters you may want to modify:
 - `resources.cache_dir` This is where vLLM and other python packages will be cached. Make sure you have enough space.
-- `resources.policy_cuda` This is a string of CUDA devices (e.g., `"3,4,5"` or `"3"`) used for the policy update/training. Make sure you have enough memory on these devices.
+- `resources.policy_cuda` This is a string of CUDA devices (e.g., `"3,4"` or `"3"`) used for the policy update/training. Make sure you have enough memory on these devices.
 - `resources.action_cuda` This is a string of CUDA devices used for the TRL with vLLM serving to sample "actions" (in the context of reinforcement learning). Make sure you have enough memory on these devices.
 - `resources.downstream_cuda` This is a string of CUDA devices used for the downstream LLM (to obtain reward). Make sure you have enough memory on these devices. This field is ignored if you are using closed-source LLMs as downstream.
 - `model.policy` This is the model name. You can use any repository name supported by Hugging Face or a path to a local model (e.g., `"meta-llama/Llama-3.1-8B-Instruct"` or `"/usr/local/data/Llama-3.1-8B-Instruct"`).
