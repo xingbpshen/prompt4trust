@@ -60,4 +60,4 @@ By default, the policy model will be trained with GRPO using TRL support. Run th
 ```bash
 accelerate launch main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train --component 1
 ```
-Please test it out and let me know (by raising an GitHub issue) if you encounter any issues.
+Please test it out and let me know (by raising a GitHub issue) if you encounter any issues.
