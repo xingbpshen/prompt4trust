@@ -116,7 +116,7 @@ def wait_until_ready(port, timeout=300):
     """
     start_time = time.time()
     while not is_ready(port):
-        if time.time() - start_time > 10:
+        if time.time() - start_time > 30:
             util.info('engine.__init__.py', 'Still waiting? Check the GPU mem usage to make sure no server is lost.')
         if time.time() - start_time > timeout:
             raise TimeoutError(f"Server at port {port} did not become ready within {timeout} seconds.")
