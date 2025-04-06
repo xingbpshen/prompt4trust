@@ -23,12 +23,13 @@ Supported closed-source LLMs as downstream:
 ## 1. Preparation
 ### 1.1 Installation
 ```bash
+git clone https://github.com/xingbpshen/vccrl-llm.git
+cd vccrl-llm/
 pip install -r requirements.txt
 ```
 ### 1.2 Downloading datasets
-Create a `data/` folder under the project root:
+Create a `data/` folder under the project root `vccrl-llm/`:
 ```bash
-cd vccrl-llm/
 mkdir data/
 ```
 Download the dataset from the MedMCQA repository [here](https://drive.google.com/uc?export=download&id=15VkJdq5eyWIkfb_aoD3oS8i4tScbHYky). Unzip and put all three `.json` files in the newly created `data/` folder.
