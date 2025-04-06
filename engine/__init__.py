@@ -70,13 +70,13 @@ def init_log_path(log_path, args):
         # case insensitive check
         response = response.lower()
         if response != "y":
-            raise ValueError
+            raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
         elif response == "y":
             # remove the existing folder and create a new one
             os.system(f"rm -r {log_path}")
             os.makedirs(log_path)
     else:
-        return 0
+        raise 0
 
 
 def parse_answer_prob(text):
