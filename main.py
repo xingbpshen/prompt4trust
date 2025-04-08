@@ -16,6 +16,15 @@ def main():
         env1["CUDA_VISIBLE_DEVICES"] = config.resources.action_cuda
         num_gpus = len(config.resources.action_cuda.split(","))
         env1["XDG_CACHE_HOME"] = config.resources.cache_dir
+
+        if args.compute_capability is not None:
+            if args.compute_capability[0] >= 8:  # for GPUs with compute capability >= 8.0, can use bfloat16
+                dtype = "bfloat16"
+            else:  # for older GPUs, must use float16
+                dtype = "half"
+        else:
+            dtype = "half"  # default to half if no GPU is found
+    
         # run trl vllm serve
         action_proc = subprocess.Popen(["trl",
                                         "vllm-serve",
@@ -23,7 +32,8 @@ def main():
                                         f"--gpu_memory_utilization={config.resources.action_gpu_memory_utilization}",
                                         f"--tensor_parallel_size={num_gpus}",
                                         f"--host=localhost",
-                                        f"--port={config.resources.action_port}"],
+                                        f"--port={config.resources.action_port}",
+                                        f"--dtype={dtype}"],
                                        env=env1,
                                        stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL,
@@ -43,7 +53,8 @@ def main():
                                                 f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
                                                 f"--tensor_parallel_size={num_gpus}",
                                                 f"--host=localhost",
-                                                f"--port={config.resources.downstream_port}"],
+                                                f"--port={config.resources.downstream_port}",
+                                                f"--dtype={dtype}"],
                                                env=env2,
                                                stdout=subprocess.DEVNULL,
                                                stderr=subprocess.DEVNULL,
