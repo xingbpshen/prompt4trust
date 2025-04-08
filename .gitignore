@@ -3,6 +3,7 @@ demo.ipynb
 test.py
 test2.py
 test3.py
+config/medmcqa_my.yml
 
 *.zip
 *.idea

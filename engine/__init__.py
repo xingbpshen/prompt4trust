@@ -5,6 +5,7 @@ import re
 from openai import OpenAI
 import time
 import util
+import psutil
 
 
 def accuracy(gt_answers, lm_answers):
@@ -65,13 +66,18 @@ def ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
 
 def init_log_path(log_path, args):
     if os.path.exists(log_path) and args.train:
-        # ask if user wants to overwrite the existing folder
-        response = input(f"Folder {log_path} already exists. Overwrite? (y/n): ")
-        # case insensitive check
-        response = response.lower()
-        if response != "y":
-            raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
-        elif response == "y":
+        if not args.ni:
+            # ask if user wants to overwrite the existing folder
+            response = input(f"Folder {log_path} already exists. Overwrite? (y/n): ")
+            # case insensitive check
+            response = response.lower()
+            if response != "y":
+                raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
+            elif response == "y":
+                # remove the existing folder and create a new one
+                os.system(f"rm -r {log_path}")
+                os.makedirs(log_path)
+        else:
             # remove the existing folder and create a new one
             os.system(f"rm -r {log_path}")
             os.makedirs(log_path)
@@ -108,14 +114,19 @@ def is_ready(port):
             return True
 
 
-def wait_until_ready(port, timeout=300):
+def wait_until_ready(port, subproc, timeout=300):
     """
     Wait until the vllm server is ready to accept requests.
     :param port: The port on which the vllm server is running.
+    :param subproc: The subprocess object for the vllm server.
     :param timeout: The maximum time to wait in seconds.
     """
     start_time = time.time()
     while not is_ready(port):
+        # if the server has exited, raise an error
+        if subproc.poll() is not None:
+            stderr_output = subproc.stderr.read().decode()
+            raise RuntimeError(f"Error:\n{stderr_output}\nvLLM server at port {port} exited unexpectedly, please kill the corresponding GPU process manually by:\nkill -9 PID")
         if time.time() - start_time > 30:
             util.info('engine.__init__.py', 'Still waiting? Check the GPU mem usage to make sure no server is lost.')
         if time.time() - start_time > timeout:

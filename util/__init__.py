@@ -4,6 +4,7 @@ import argparse
 import yaml
 import numpy as np
 import torch
+import psutil
 
 
 def info(file_name, msg):
@@ -43,11 +44,14 @@ def parse_args_and_config():
     parser.add_argument(
         "--comment", type=str, default="", help="A string for experiment comment"
     )
+    parser.add_argument("--ni", action="store_true",
+                        help="Whether to use no interaction mode (automatically accept all prompts)")
 
     args = parser.parse_args()
-    # check if only one is True from "train", "ctrain", "test"
+    # check arg legitimacy
     if sum([args.train, args.ctrain, args.test]) != 1:
         raise ValueError("Exactly one of --train, --ctrain, or --test must be specified.")
+    assert args.ni is True
 
     # parse config file
     with open(os.path.join("config", args.config), "r") as f:

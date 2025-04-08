@@ -8,23 +8,23 @@ resources:
   cache_dir: "/usr/local/data/xingshen/.cache"  # change this to your cache path
   action_port: 8000  # change this to your port, e.g., 8000
   downstream_port: 8001  # change this to your port, e.g., 8001
-  action_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
-  downstream_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
+  action_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
+  downstream_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
   # the following CUDA devices are used for different components, no overlap is allowed
-  policy_cuda: "2"  # change this to your CUDA device id, e.g., "3,4"
+  policy_cuda: "1"  # change this to your CUDA device id, e.g., "3,4"
   action_cuda: "0"  # change this to your CUDA device id, e.g., "0"
-  downstream_cuda: "1"  # change this to your CUDA device id, e.g., "1,2"
+  downstream_cuda: "2"  # change this to your CUDA device id, e.g., "1,2"
 
 model:
   # change this to your model path or HF model name
   policy: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"
   # change this to your model path or HF model name or closed-source model name such as "gemini-2.0-flash-001"
-  downstream: "/usr/local/data/xingshen/public_llms/Llama-3.1-8B-Instruct"
+  downstream: "/usr/local/data/xingshen/public_llms/Qwen2-0.5B-Instruct"
 
 # if the downstream model is a closed-source model, please set the following parameters
 api_key:
-  openai: "sk-..."  # change this to your OpenAI API key
-  google: "..."  # change this to your Google API key
+  openai: ""  # change this to your OpenAI API key
+  google: ""  # change this to your Google API key
 
 train:  # for more details, please refer to the GRPOConfig class from TRL
   logging_steps: 10

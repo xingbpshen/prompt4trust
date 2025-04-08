@@ -56,7 +56,7 @@ These servers will be started automatically so you do not need to do anything no
 ### 2.2 Training the policy model
 By default, the policy model will be trained with GRPO using TRL support. Run the following command to start training:
 ```bash
-python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train
+python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --train --ni
 ```
 Running the above command once will start:
 - **2** (or **1**) detached subprocesses for vLLMs, each corresponding to one of the servers. You can observe the GPU memory usage increasing in the terminal. You can use `nvidia-smi` to check the GPU memory usage for your specified CUDA devices `resources.action_cuda` and `resources.downstream_cuda`.

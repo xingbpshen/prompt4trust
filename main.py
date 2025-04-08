@@ -16,42 +16,45 @@ def main():
         num_gpus = len(config.resources.action_cuda.split(","))
         env1["XDG_CACHE_HOME"] = config.resources.cache_dir
         # run trl vllm serve
-        subprocess.Popen(["trl",
-                          "vllm-serve",
-                          f"--model={config.model.policy}",
-                          f"--gpu_memory_utilization={config.resources.action_gpu_memory_utilization}",
-                          f"--tensor_parallel_size={num_gpus}",
-                          f"--port={config.resources.action_port}"],
-                         env=env1,
-                         stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        action_proc = subprocess.Popen(["trl",
+                                        "vllm-serve",
+                                        f"--model={config.model.policy}",
+                                        f"--gpu_memory_utilization={config.resources.action_gpu_memory_utilization}",
+                                        f"--tensor_parallel_size={num_gpus}",
+                                        f"--host=localhost",
+                                        f"--port={config.resources.action_port}"],
+                                       env=env1,
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE,
+                                       start_new_session=True)
 
         # deploy vLLM for downstream, use by "python main.py"
+        downstream_proc = None
         if not args.is_closed_source_downstream:
             env2 = os.environ.copy()
             env2["CUDA_VISIBLE_DEVICES"] = config.resources.downstream_cuda
             num_gpus = len(config.resources.downstream_cuda.split(","))
             env2["XDG_CACHE_HOME"] = config.resources.cache_dir
             # run vllm serve
-            subprocess.Popen(["vllm",
-                              "serve",
-                              config.model.downstream,
-                              f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
-                              f"--tensor_parallel_size={num_gpus}",
-                              f"--port={config.resources.downstream_port}"],
-                             env=env2,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            downstream_proc = subprocess.Popen(["vllm",
+                                                "serve",
+                                                config.model.downstream,
+                                                f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
+                                                f"--tensor_parallel_size={num_gpus}",
+                                                f"--host=localhost",
+                                                f"--port={config.resources.downstream_port}"],
+                                               env=env2,
+                                               stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE,
+                                               start_new_session=True)
 
         # wait for vLLM to be ready
         if not args.is_closed_source_downstream:
             # check if two ports are available for querying
             util.info('main.py', 'Waiting for vLLM to be ready (for downstream)...')
-            wait_until_ready(port=config.resources.downstream_port)
+            wait_until_ready(port=config.resources.downstream_port, subproc=downstream_proc)
         util.info('main.py', 'Waiting for TRL vLLM-Serve to be ready (for action sampling)...')
-        wait_until_ready(port=config.resources.action_port)
+        wait_until_ready(port=config.resources.action_port, subproc=action_proc)
         util.info('main.py', 'vLLMs are ready!')
 
         # deploy TRL for policy update/training, use by "accelerate launch main.py"
