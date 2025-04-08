@@ -5,7 +5,7 @@ import yaml
 import numpy as np
 import torch
 import psutil
-
+import warnings
 
 def info(file_name, msg):
     print(f"\033[1;94m[{file_name}]\033[0m \033[94mINFO\033[0m {msg}")
@@ -20,6 +20,13 @@ def is_closed_source_model(model_name):
     else:
         return True
 
+# check GPU compute capability
+def get_gpu_compute_capability():
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_capability(0)
+    else:
+        warnings.warn("No CUDA-compatible GPU found.", UserWarning)
+        return None
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
@@ -60,6 +67,9 @@ def parse_args_and_config():
 
     # add argument for closed source downstream
     args.is_closed_source_downstream = is_closed_source_model(new_config.model.downstream)
+
+    #add argument for compute capability 
+    args.compute_capability = get_gpu_compute_capability()
 
     # set random seed
     torch.manual_seed(args.seed)
