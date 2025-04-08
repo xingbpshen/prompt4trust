@@ -3,6 +3,7 @@ import os
 from engine import wait_until_ready
 import util
 import subprocess
+import signal
 
 
 def main():
@@ -24,8 +25,8 @@ def main():
                                         f"--host=localhost",
                                         f"--port={config.resources.action_port}"],
                                        env=env1,
-                                       stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE,
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL,
                                        start_new_session=True)
 
         # deploy vLLM for downstream, use by "python main.py"
@@ -44,8 +45,8 @@ def main():
                                                 f"--host=localhost",
                                                 f"--port={config.resources.downstream_port}"],
                                                env=env2,
-                                               stdout=subprocess.PIPE,
-                                               stderr=subprocess.PIPE,
+                                               stdout=subprocess.DEVNULL,
+                                               stderr=subprocess.DEVNULL,
                                                start_new_session=True)
 
         # wait for vLLM to be ready
@@ -61,8 +62,20 @@ def main():
         env3 = os.environ.copy()
         env3["CUDA_VISIBLE_DEVICES"] = config.resources.policy_cuda
         env3["XDG_CACHE_HOME"] = config.resources.cache_dir
-        subprocess.Popen(["accelerate", "launch", "engine_launcher.py"] + args_to_forward,
-                         env=env3, start_new_session=False)
+        try:
+            policy_proc = subprocess.Popen(["accelerate", "launch", "engine_launcher.py"] + args_to_forward,
+                                       env=env3, start_new_session=True)
+            policy_proc.wait()
+        except KeyboardInterrupt:
+            # Send SIGINT to the entire process group
+            os.killpg(os.getpgid(policy_proc.pid), signal.SIGINT)
+
+            # Optional: Force kill if still running
+            try:
+                policy_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(policy_proc.pid), signal.SIGKILL)
+
     elif args.ctrain:
         pass
     elif args.test:

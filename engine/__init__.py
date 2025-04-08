@@ -5,7 +5,7 @@ import re
 from openai import OpenAI
 import time
 import util
-import psutil
+import requests
 
 
 def accuracy(gt_answers, lm_answers):
@@ -92,7 +92,7 @@ def parse_answer_prob(text):
         confidence = float(match.group(2))
         return number, confidence
     else:
-        # randomly return a number and confidence 0
+        # randomly return a number and confidence nearly 0
         return np.random.randint(1, 5), 0
 
 
@@ -102,15 +102,13 @@ def is_ready(port):
     :param port: The port on which the vllm server is running.
     :return: True if the server is ready, False otherwise.
     """
-    client = OpenAI(api_key='EMPTY', base_url=f'http://localhost:{port}/v1')
+    url = f"http://localhost:{port}/health/"
     try:
-        models = client.models.list()
-        if models.data:
-            return True
-    except Exception as e:
-        if 'Connection error' in str(e):
-            return False
-        else:
+        response = requests.get(url)
+    except requests.exceptions.RequestException as exc:
+        return False
+    else:
+        if response.status_code == 200:
             return True
 
 

@@ -41,17 +41,18 @@ class Agent:
                                                                         messages=[message])
         return chat_completion.choices[0].message.content
 
-    def reward_func(self, completions, questions, gt_answers, option_lists, **kwargs):
+    def reward_func(self, completions, **kwargs):
         """
         Reward function for the LLM. The reward function is used to evaluate the quality of the completions.
         :param completions: list of completions from the LLM, it is a list of (list of dicts)s if conversation is used
-        :param questions: list of question text
-        :param gt_answers: list of ground truth answers for the question
-        :param option_lists: list of options (list of strings) for the question
         :param kwargs: other arguments
         :return: The function must return a list of floats. Each float represents the reward corresponding to a single completion.
         """
         # Implement the reward function logic here
+        questions = kwargs.get('question', None)
+        gt_answers = kwargs.get('gt_answer', None)
+        option_lists = kwargs.get('options', None)
+        assert questions is not None and gt_answers is not None and option_lists is not None
         # the completions are used for another LLM as prompt
         conversation_list = []
         for completion, question, option_list in zip(completions, questions, option_lists):
@@ -68,13 +69,16 @@ class Agent:
         # get the answer and prob from the outputs
         rewards = []
         for output, gt_answer in zip(outputs, gt_answers):
-            text = output.outputs[0].text
+            text = output
             answer, prob = parse_answer_prob(text)
             # use log score
             if answer == gt_answer:
+                # clip prob to avoid log(0)
+                prob = min(1, max(prob, 1e-10))
                 rewards.append(np.log(prob))
             else:
-                rewards.append(np.log(1 - prob))
+                tmp = min(1, max(1 - prob, 1e-10))
+                rewards.append(np.log(tmp))
         return rewards
 
     def train(self, trainer_name='GRPO'):
