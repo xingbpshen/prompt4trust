@@ -19,6 +19,13 @@ Make sure you have at least **3** NVIDIA GPUs with adequate memory (memory requi
 Supported closed-source LLMs as downstream:
 - `gemini-2.0-flash-001`
 - `gpt-4o-mini-2024-07-18`
+### 0.1 (Recommended) Downloading open-source LLMs beforehand
+We recommend to download the open-source LLMs using `huggingface-cli` before you start (make sure you obtained relevant permissions/agreement to download the models from Hugging Face):
+```bash
+huggingface-cli login
+huggingface-cli download {REPO_NAME} --local-dir {SAVE_FOLDER} --local-dir-use-symlinks False
+```
+For example, the `{REPO_NAME}` can be `meta-llama/Llama-3.1-8B-Instruct` and `{SAVE_FOLDER}` can be `/usr/local/data/Llama-3.1-8B-Instruct`. The downloaded model will be saved in the specified folder `{SAVE_FOLDER}`.
 
 ## 1. Preparation
 ### 1.1 Installation
