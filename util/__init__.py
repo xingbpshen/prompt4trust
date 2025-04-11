@@ -53,6 +53,7 @@ def parse_args_and_config():
     )
     parser.add_argument("--ni", action="store_true",
                         help="Whether to use no interaction mode (automatically accept all prompts)")
+    parser.add_argument('--resume', action='store_true', help='Resume training from latest checkpoint') #add arguement for resume
 
     args = parser.parse_args()
     # check arg legitimacy

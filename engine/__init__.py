@@ -64,25 +64,22 @@ def ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
     return ece
 
 
-def init_log_path(log_path, args):
-    if os.path.exists(log_path) and args.train:
-        if not args.ni:
-            # ask if user wants to overwrite the existing folder
-            response = input(f"Folder {log_path} already exists. Overwrite? (y/n): ")
-            # case insensitive check
-            response = response.lower()
-            if response != "y":
-                raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
-            elif response == "y":
-                # remove the existing folder and create a new one
-                os.system(f"rm -r {log_path}")
-                os.makedirs(log_path)
-        else:
-            # remove the existing folder and create a new one
+def init_log_path(log_path, args): #changed to be able to use checkpoints in the given log path
+    if os.path.exists(log_path):
+        if args.train and not args.resume:
+            if not args.ni:
+                response = input(f"Folder {log_path} already exists. Overwrite? (y/n): ").lower()
+                if response != "y":
+                    raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
             os.system(f"rm -r {log_path}")
             os.makedirs(log_path)
+        elif args.train and args.resume:
+            print(f"Resuming checkpoints in existing folder {log_path}, not overwriting.")
+        else:
+            os.makedirs(log_path, exist_ok=True)
     else:
-        raise 0
+        os.makedirs(log_path)
+
 
 
 def parse_answer_prob(text):

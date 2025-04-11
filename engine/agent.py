@@ -5,6 +5,8 @@ import dataset
 from prompt import build_downstream_prompt
 import numpy as np
 from openai import OpenAI
+import torch
+from transformers.trainer_utils import get_last_checkpoint
 
 
 class Agent:
@@ -12,6 +14,13 @@ class Agent:
         self.args = args
         self.config = config
         self.log_path = os.path.join(args.log_folder, args.trial_name)
+        checkpoint_path = get_last_checkpoint(self.log_path) #check if there is a saved checkpoint
+        if checkpoint_path: #if it exists, resume from the checkpoint
+            self.checkpoint_path = checkpoint_path
+            self.args.resume = True
+        else: #otherwise, start from scratch
+            self.checkpoint_path = None
+            self.args.resume = False
         init_log_path(self.log_path, args)
         if args.is_closed_source_downstream:
             provider, base_url = is_supported_closed_source_model(config.model.downstream)
@@ -86,6 +95,7 @@ class Agent:
         # minimum example
         trainer_config = GRPOConfig(output_dir=str(self.log_path),
                                     logging_steps=self.config.train.logging_steps,
+                                    save_steps = 250, #checkpointing at 250 steps
                                     temperature=self.config.train.gen_temperature,
                                     top_p=self.config.train.top_p,
                                     top_k=self.config.train.top_k,
@@ -96,9 +106,12 @@ class Agent:
                                     scale_rewards=self.config.train.scale_rewards,
                                     max_prompt_length=self.config.train.max_prompt_length,
                                     max_completion_length=self.config.train.max_completion_length,
-                                    num_generations=self.config.train.num_generations)
+                                    num_generations=self.config.train.num_generations,
+                                    save_total_limit=3) #have only 3 checkpoints saved at a time - reduce storage
+                                    
         trainer = GRPOTrainer(model=self.config.model.policy,
                               reward_funcs=self.reward_func,
                               args=trainer_config,
-                              train_dataset=dataset.get_dataset(args=self.args, config=self.config, split='train'))
-        trainer.train(resume_from_checkpoint=False)
+                              train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0]))
+
+        trainer.train(resume_from_checkpoint=self.checkpoint_path)
