@@ -1,8 +1,8 @@
 import json
 import random
 
-input_path = "path/to/medmcqa/train.json" #TODO
-output_path = "path/to/medmcqa/train_5k.json" #TODO
+input_path = "/network/scratch/a/anita.kriz/vccrl-llm/data/medmcqa/train.json" #TODO
+output_path = "/network/scratch/a/anita.kriz/vccrl-llm/data/medmcqa/train_5k.json" #TODO
 
 SEED = 42  
 random.seed(SEED)
