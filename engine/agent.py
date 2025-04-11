@@ -14,7 +14,10 @@ class Agent:
         self.args = args
         self.config = config
         self.log_path = os.path.join(args.log_folder, args.trial_name)
-        checkpoint_path = get_last_checkpoint(self.log_path) #check if there is a saved checkpoint
+        if os.path.exists(self.log_path):
+            checkpoint_path = get_last_checkpoint(self.log_path) #check if there is a saved checkpoint
+        else: 
+            checkpoint_path = None
         if checkpoint_path: #if it exists, resume from the checkpoint
             self.checkpoint_path = checkpoint_path
             self.args.resume = True
