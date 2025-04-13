@@ -1,12 +1,13 @@
 import numpy as np
 import os
-from prompt import get_match_pattern
+from prompt import get_match_pattern, get_answer_match_pattern, get_confidence_match_pattern
 import re
 from openai import OpenAI
 import time
 import util
 import requests
 
+INVALID_RESPONSE_FORMAT_PENALTY = 1e-12
 
 def accuracy(gt_answers, lm_answers):
     assert len(gt_answers) == len(lm_answers)
@@ -83,14 +84,25 @@ def init_log_path(log_path, args): #changed to be able to use checkpoints in the
 
 
 def parse_answer_prob(text):
-    match = re.search(get_match_pattern(), text)
-    if match:
-        number = int(match.group(1))
-        confidence = float(match.group(2))
+    # match = re.search(get_match_pattern(), text)
+    # Use separate confidence and answer match patterns to accept responses with slight format deviations
+    answer_match = re.search(get_answer_match_pattern(), text)
+    confidence_match = re.search(get_confidence_match_pattern(), text)
+    print(f'ANSWER MATCH: {answer_match}, CONFIDENCE_MATCH {confidence_match}')
+    if answer_match and confidence_match:
+        try:
+            number = int(answer_match.group(1))
+        except ValueError:
+            # Handle edge cases where answer is not reported as an int
+            number = str(answer_match.group(1))
+        confidence = float(confidence_match.group(1))/100 # Convert percentage to confidence score
         return number, confidence
     else:
-        # randomly return a number and confidence nearly 0
-        return np.random.randint(1, 5), 0
+        # return an invalid answer number and confidence nearly 0
+        # INVALID_RESPONSE_FORMAT_PENALTY defines the strength of the penalty 
+        # for responses that don't report confidence in a way that we can parse
+        print('Did not find answer and confidence score')
+        return -1, INVALID_RESPONSE_FORMAT_PENALTY
 
 
 def is_ready(port):
