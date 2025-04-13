@@ -19,3 +19,9 @@ def build_downstream_prompt(dataset_name, question_text, option_list, hint_text)
 
 def get_match_pattern():
     return r"answer is (\d+(?:\.\d+)?) with confidence (\d+(?:\.\d+)?)"
+
+def get_answer_match_pattern():
+    return r"answer is \(?(\d+(?:\.\d+)?)\)?"
+
+def get_confidence_match_pattern():
+    return r"confidence \(?(\d+(?:\.\d+)?)\)?"

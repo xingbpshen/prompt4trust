@@ -1,5 +1,5 @@
 from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model
+from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY
 import os
 import dataset
 from prompt import build_downstream_prompt
@@ -7,7 +7,7 @@ import numpy as np
 from openai import OpenAI
 import torch
 from transformers.trainer_utils import get_last_checkpoint
-
+from pprint import pprint
 
 class Agent:
     def __init__(self, args, config):
@@ -64,6 +64,16 @@ class Agent:
         questions = kwargs.get('question', None)
         gt_answers = kwargs.get('gt_answer', None)
         option_lists = kwargs.get('options', None)
+        # Print lines for debugging 
+        # print('POLICY MODEL COMPLETIONS')
+        # pprint(completions)
+        # print('QUESTIONS')
+        # pprint(questions)
+        # print('GT ANSWERS')
+        # pprint(gt_answers)
+        # print('OPTIONS')
+        # pprint(option_lists)
+
         assert questions is not None and gt_answers is not None and option_lists is not None
         # the completions are used for another LLM as prompt
         conversation_list = []
@@ -83,14 +93,31 @@ class Agent:
         for output, gt_answer in zip(outputs, gt_answers):
             text = output
             answer, prob = parse_answer_prob(text)
+            # print('DOWNSTREAM OUTPUT')
+            # pprint(output)
+            # print('ANSWER')
+            # print(f"{answer} (correct answer is {gt_answer})")
+
             # use log score
-            if answer == gt_answer:
+            if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY: 
+                # Response did not include confidence report or was formatted 
+                # such that the reported confidence could not be parsed
+                rewards.append(np.log(prob))
+                # print('REWARD (INVALID RESPONSE)')
+                # print(prob, np.log(prob))
+            elif answer == gt_answer:
                 # clip prob to avoid log(0)
                 prob = min(1, max(prob, 1e-10))
                 rewards.append(np.log(prob))
+                # print('REWARD (CORRECT RESPONSE)')
+                # print(prob, np.log(prob))
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
                 rewards.append(np.log(tmp))
+                # print('REWARD (INCORRECT RESPONSE)')
+                # print(tmp, np.log(tmp))
+        # print('REWARDS')
+        pprint(rewards)
         return rewards
 
     def train(self, trainer_name='GRPO'):
@@ -110,7 +137,11 @@ class Agent:
                                     max_prompt_length=self.config.train.max_prompt_length,
                                     max_completion_length=self.config.train.max_completion_length,
                                     num_generations=self.config.train.num_generations,
-                                    save_total_limit=3) #have only 3 checkpoints saved at a time - reduce storage
+                                    save_total_limit=3, 
+                                    # max_grad_norm=0.5, # set the maximum permitted gradient value (TODO: find out why this setting doesn't seem to work)
+                                    num_iterations=self.config.train.num_iterations, 
+                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size
+                                ) 
                                     
         trainer = GRPOTrainer(model=self.config.model.policy,
                               reward_funcs=self.reward_func,
