@@ -116,7 +116,7 @@ class Agent:
                 rewards.append(np.log(tmp))
                 # print('REWARD (INCORRECT RESPONSE)')
                 # print(tmp, np.log(tmp))
-        # print('REWARDS')
+        print('REWARDS')
         pprint(rewards)
         return rewards
 
@@ -125,7 +125,7 @@ class Agent:
         # minimum example
         trainer_config = GRPOConfig(output_dir=str(self.log_path),
                                     logging_steps=self.config.train.logging_steps,
-                                    save_steps = 250, #checkpointing at 250 steps
+                                    save_steps = self.config.train.save_steps, #checkpointing at 250 steps
                                     temperature=self.config.train.gen_temperature,
                                     top_p=self.config.train.top_p,
                                     top_k=self.config.train.top_k,
@@ -138,9 +138,10 @@ class Agent:
                                     max_completion_length=self.config.train.max_completion_length,
                                     num_generations=self.config.train.num_generations,
                                     save_total_limit=3, 
-                                    # max_grad_norm=0.5, # set the maximum permitted gradient value (TODO: find out why this setting doesn't seem to work)
+                                    max_grad_norm=self.config.train.max_grad_norm, 
                                     num_iterations=self.config.train.num_iterations, 
-                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size
+                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size, 
+                                    beta = self.config.train.beta
                                 ) 
                                     
         trainer = GRPOTrainer(model=self.config.model.policy,
