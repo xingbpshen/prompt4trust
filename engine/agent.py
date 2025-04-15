@@ -1,5 +1,5 @@
 from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY
+from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece
 import os
 import dataset
 from prompt import build_downstream_prompt
@@ -8,6 +8,9 @@ from openai import OpenAI
 import torch
 from transformers.trainer_utils import get_last_checkpoint
 from pprint import pprint
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from tqdm import tqdm
+import json
 
 class Agent:
     def __init__(self, args, config):
@@ -64,15 +67,6 @@ class Agent:
         questions = kwargs.get('question', None)
         gt_answers = kwargs.get('gt_answer', None)
         option_lists = kwargs.get('options', None)
-        # Print lines for debugging 
-        # print('POLICY MODEL COMPLETIONS')
-        # pprint(completions)
-        # print('QUESTIONS')
-        # pprint(questions)
-        # print('GT ANSWERS')
-        # pprint(gt_answers)
-        # print('OPTIONS')
-        # pprint(option_lists)
 
         assert questions is not None and gt_answers is not None and option_lists is not None
         # the completions are used for another LLM as prompt
@@ -93,31 +87,21 @@ class Agent:
         for output, gt_answer in zip(outputs, gt_answers):
             text = output
             answer, prob = parse_answer_prob(text)
-            # print('DOWNSTREAM OUTPUT')
-            # pprint(output)
-            # print('ANSWER')
-            # print(f"{answer} (correct answer is {gt_answer})")
-
             # use log score
             if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY: 
                 # Response did not include confidence report or was formatted 
                 # such that the reported confidence could not be parsed
                 rewards.append(np.log(prob))
-                # print('REWARD (INVALID RESPONSE)')
-                # print(prob, np.log(prob))
+  
             elif answer == gt_answer:
                 # clip prob to avoid log(0)
                 prob = min(1, max(prob, 1e-10))
                 rewards.append(np.log(prob))
-                # print('REWARD (CORRECT RESPONSE)')
-                # print(prob, np.log(prob))
+
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
                 rewards.append(np.log(tmp))
-                # print('REWARD (INCORRECT RESPONSE)')
-                # print(tmp, np.log(tmp))
-        print('REWARDS')
-        pprint(rewards)
+                
         return rewards
 
     def train(self, trainer_name='GRPO'):
@@ -150,3 +134,94 @@ class Agent:
                               train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0]))
 
         trainer.train(resume_from_checkpoint=self.checkpoint_path)
+
+    def eval(self):
+
+        # 1. Load model and tokenizer from checkpoint
+        print(f"Loading model from checkpoint: {self.checkpoint_path}")
+        model = AutoModelForCausalLM.from_pretrained(self.checkpoint_path).to("cuda")
+        tokenizer = AutoTokenizer.from_pretrained(self.checkpoint_path)
+        model.eval()
+
+        # 2. Load dataset
+        eval_dataset = dataset.get_dataset(
+            args=self.args,
+            config=self.config,
+            split=self.config.dataset.split_names[1]
+        )
+
+        # 3. Loop through examples and generate completions, then send to downstream model 
+        calibrated_lm_answers = []
+        calibrated_lm_probabilities = []
+        baseline_lm_answers = []
+        baseline_lm_probabilities = []
+        for sample in tqdm(eval_dataset):
+            question = sample["question"]
+            options = sample["options"]
+            gt_answer = sample["gt_answer"]
+            prompt = sample["prompt"]
+        
+            inputs = tokenizer(prompt[0]["content"], return_tensors="pt").to("cuda")
+      
+            with torch.no_grad():
+                output = model.generate(
+                    **inputs,
+                    max_new_tokens=self.config.train.max_completion_length,
+                    temperature=self.config.train.gen_temperature,
+                    top_p=self.config.train.top_p,
+                    do_sample=True
+                )
+            completion = tokenizer.decode(output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
+         
+            calibrated_prompt = build_downstream_prompt(
+                dataset_name=self.config.dataset.name,
+                question_text= question,
+                option_list = options,
+                hint_text=completion,
+            )
+
+            calibrated_output = self.send_message_downstream({'role': 'user', 'content': calibrated_prompt})
+            calibrated_answer, calibrated_prob = parse_answer_prob(calibrated_output)
+
+            calibrated_lm_answers.append(calibrated_answer)
+            calibrated_lm_probabilities.append(calibrated_prob)
+
+            baseline_prompt = build_downstream_prompt(
+                dataset_name=self.config.dataset.name,
+                question_text=question,
+                option_list=options,
+                hint_text= None,
+            )
+
+            baseline_output = self.send_message_downstream({'role': 'user', 'content': baseline_prompt})
+            baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
+
+            baseline_lm_answers.append(baseline_answer)
+            baseline_lm_probabilities.append(baseline_prob)
+        
+        # 4. Calcute metrics
+        calibrated_acc = compute_accuracy(eval_dataset["gt_answer"], calibrated_lm_answers)
+        calibrated_ece = compute_ece(eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+
+        baseline_acc = compute_accuracy(eval_dataset["gt_answer"], baseline_lm_answers)
+        baseline_ece = compute_ece(eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+
+        # 5. Log Metrics
+        results = {
+            "calibrated_accuracy": calibrated_acc,
+            "calibrated_ece": calibrated_ece,
+            "baseline_accuracy": baseline_acc,
+            "baseline_ece": baseline_ece,
+            "checkpoint": self.checkpoint_path,
+        }
+
+        log_file = os.path.join(self.log_path, "eval_results.json")
+        os.makedirs(self.log_path, exist_ok=True)
+
+        with open(log_file, "w") as f:
+            json.dump(results, f, indent=4)
+
+        print(f"Metric Results saved to {log_file}")
+
+
+

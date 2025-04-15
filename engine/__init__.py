@@ -9,7 +9,7 @@ import requests
 
 INVALID_RESPONSE_FORMAT_PENALTY = 1e-12
 
-def accuracy(gt_answers, lm_answers):
+def compute_accuracy(gt_answers, lm_answers):
     assert len(gt_answers) == len(lm_answers)
     correct = 0
     for gt, lm in zip(gt_answers, lm_answers):
@@ -23,7 +23,7 @@ def accuracy(gt_answers, lm_answers):
     return correct / len(gt_answers)
 
 
-def ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
+def compute_ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
     """
     Expected Calibration Error (ECE) is a scalar that measures the calibration of a model using uniform bins.
     :param gt_answers: list of ground truth answers in character format
@@ -88,7 +88,7 @@ def parse_answer_prob(text):
     # Use separate confidence and answer match patterns to accept responses with slight format deviations
     answer_match = re.search(get_answer_match_pattern(), text)
     confidence_match = re.search(get_confidence_match_pattern(), text)
-    print(f'ANSWER MATCH: {answer_match}, CONFIDENCE_MATCH {confidence_match}')
+    # print(f'ANSWER MATCH: {answer_match}, CONFIDENCE_MATCH {confidence_match}')
     if answer_match and confidence_match:
         try:
             number = int(answer_match.group(1))
@@ -101,7 +101,7 @@ def parse_answer_prob(text):
         # return an invalid answer number and confidence nearly 0
         # INVALID_RESPONSE_FORMAT_PENALTY defines the strength of the penalty 
         # for responses that don't report confidence in a way that we can parse
-        print('Did not find answer and confidence score')
+        # print('Did not find answer and confidence score')
         return -1, INVALID_RESPONSE_FORMAT_PENALTY
 
 

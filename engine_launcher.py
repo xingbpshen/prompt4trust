@@ -8,6 +8,8 @@ def main():
     agent = Agent(args, config)
     if args.train:
         agent.train()
+    elif args.test:
+        agent.eval()
 
 
 if __name__ == "__main__":
