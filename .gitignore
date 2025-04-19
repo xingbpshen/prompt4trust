@@ -4,6 +4,7 @@ test.py
 test2.py
 test3.py
 config/medmcqa_my.yml
+run_my.sh
 
 *.zip
 *.idea
