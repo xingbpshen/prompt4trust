@@ -149,7 +149,7 @@ class Agent:
             args=self.args,
             config=self.config,
             # TODO change this hard coding
-            split=self.config.dataset.split_names[2]
+            split=self.config.dataset.split_names[1]
         )
 
         # 3. Loop through examples and generate completions, then send to downstream model 
