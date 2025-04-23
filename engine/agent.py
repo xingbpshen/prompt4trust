@@ -226,9 +226,7 @@ class Agent:
             if self.args.entropy:
                 # Implement uncertainty quantification, referencing: [1] Q. 
                 # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
-                # mc_samples = 40 # Use default of 40 MC samples (consistent with Lyu)
-
-                mc_samples = 5 # reduced for debugging
+                mc_samples = 40 # Use default of 40 MC samples (consistent with Lyu)
 
                 opt_count = len(options)
                 
@@ -287,10 +285,10 @@ class Agent:
             "calibrated_entropy_mean": calibrated_entropy_mean,
             "baseline_accuracy": baseline_acc,
             "baseline_ece": baseline_ece,
-            "checkpoint": self.checkpoint_path,
             "baseline_confidence_avg": baseline_confidence_avg,
             "baseline_confidence_std": baseline_confidence_std,
-            "baseline_entropy_mean": baseline_entropy_mean
+            "baseline_entropy_mean": baseline_entropy_mean,
+            "checkpoint": self.checkpoint_path,
         }
 
         log_file = os.path.join(self.log_path, "eval_results.json")
