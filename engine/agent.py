@@ -147,7 +147,8 @@ class Agent:
         eval_dataset = dataset.get_dataset(
             args=self.args,
             config=self.config,
-            split=self.config.dataset.split_names[1]
+            # TODO change this hard coding
+            split=self.config.dataset.split_names[2]
         )
 
         # 3. Loop through examples and generate completions, then send to downstream model 
