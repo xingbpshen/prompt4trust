@@ -11,6 +11,7 @@ from pprint import pprint
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 import json
+from pprint import pprint
 
 class Agent:
     def __init__(self, args, config):
@@ -154,13 +155,22 @@ class Agent:
         # 3. Loop through examples and generate completions, then send to downstream model 
         calibrated_lm_answers = []
         calibrated_lm_probabilities = []
+        calibrated_entropies = []
         baseline_lm_answers = []
         baseline_lm_probabilities = []
+        baseline_entropies = []
         for sample in tqdm(eval_dataset):
             question = sample["question"]
             options = sample["options"]
             gt_answer = sample["gt_answer"]
             prompt = sample["prompt"]
+
+            # print('QUESTION')
+            # pprint(question)
+            # print('GT ANSWER')
+            # pprint(gt_answer)
+            # print('OPTIONS')
+            # pprint(options)
         
             inputs = tokenizer(prompt[0]["content"], return_tensors="pt").to("cuda")
       
@@ -174,6 +184,9 @@ class Agent:
                 )
             completion = tokenizer.decode(output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
          
+            # print('POLICY MODEL COMPLETION')
+            # pprint(completion)
+
             calibrated_prompt = build_downstream_prompt(
                 dataset_name=self.config.dataset.name,
                 question_text= question,
@@ -199,21 +212,85 @@ class Agent:
 
             baseline_lm_answers.append(baseline_answer)
             baseline_lm_probabilities.append(baseline_prob)
+
+            # print('CALIBRATED DOWNSTREAM OUTPUT')
+            # pprint(calibrated_output)
+            # print('CALIBRATED ANSWER')
+            # print(f"{calibrated_answer} (correct answer is {gt_answer})")
+
+            # print('BASELINE DOWNSTREAM OUTPUT')
+            # pprint(baseline_output)
+            # print('BASELINE ANSWER')
+            # print(f"{baseline_answer} (correct answer is {gt_answer})")
+
+            if self.args.entropy:
+                # Implement uncertainty quantification, referencing: [1] Q. 
+                # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
+                # mc_samples = 40 # Use default of 40 MC samples (consistent with Lyu)
+
+                mc_samples = 5 # reduced for debugging
+
+                opt_count = len(options)
+                
+                cal_opt_freq= np.zeros((opt_count))
+                base_opt_freq = np.zeros((opt_count))
+                for mc_sample in tqdm(range(mc_samples)):
+                    calibrated_output = self.send_message_downstream({'role': 'user', 'content': calibrated_prompt})
+                    calibrated_answer, calibrated_prob = parse_answer_prob(calibrated_output)
+
+                    baseline_output = self.send_message_downstream({'role': 'user', 'content': baseline_prompt})
+                    baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
+
+                    if type(calibrated_answer) == int and calibrated_answer != -1: # Don't count invalid responses (-1 or non-int format)
+                        cal_opt_freq[calibrated_answer-1] += 1 # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+
+                    if type(baseline_answer) == int and baseline_answer != -1:  # Don't count invalid responses (-1 or non-int format)
+                        base_opt_freq[baseline_answer-1] += 1 # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+
+                # Normalize frequencies based on number of valid answers
+                cal_opt_freq = cal_opt_freq/np.sum(cal_opt_freq)
+                base_opt_freq = base_opt_freq/np.sum(base_opt_freq)
+
+                calibrated_option_entropy = np.zeros((opt_count))
+                baseline_option_entropy = np.zeros((opt_count))
+                for opt in range(opt_count):
+                    calibrated_option_entropy[opt] = cal_opt_freq[opt]*np.log(cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
+                    baseline_option_entropy[opt] = base_opt_freq[opt]*np.log(base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
+                calibrated_sample_entropy = 1-((-1/np.log(opt_count))*np.sum(calibrated_option_entropy))
+                baseline_sample_entropy = 1-((-1/np.log(opt_count))*np.sum(baseline_option_entropy))
+
+                print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
+                print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
+
+                calibrated_entropies.append(calibrated_sample_entropy)
+                baseline_entropies.append(baseline_sample_entropy)
         
         # 4. Calcute metrics
         calibrated_acc = compute_accuracy(eval_dataset["gt_answer"], calibrated_lm_answers)
         calibrated_ece = compute_ece(eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+        calibrated_confidence_avg = np.mean(calibrated_lm_probabilities)
+        calibrated_confidence_std = np.std(calibrated_lm_probabilities)
+        calibrated_entropy_mean = np.mean(calibrated_entropies)
 
         baseline_acc = compute_accuracy(eval_dataset["gt_answer"], baseline_lm_answers)
         baseline_ece = compute_ece(eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+        baseline_confidence_avg = np.mean(baseline_lm_probabilities)
+        baseline_confidence_std = np.std(baseline_lm_probabilities)
+        baseline_entropy_mean = np.mean(baseline_entropies)
 
         # 5. Log Metrics
         results = {
             "calibrated_accuracy": calibrated_acc,
             "calibrated_ece": calibrated_ece,
+            "calibrated_confidence_avg": calibrated_confidence_avg,
+            "calibrated_confidence_std": calibrated_confidence_std,
+            "calibrated_entropy_mean": calibrated_entropy_mean,
             "baseline_accuracy": baseline_acc,
             "baseline_ece": baseline_ece,
             "checkpoint": self.checkpoint_path,
+            "baseline_confidence_avg": baseline_confidence_avg,
+            "baseline_confidence_std": baseline_confidence_std,
+            "baseline_entropy_mean": baseline_entropy_mean
         }
 
         log_file = os.path.join(self.log_path, "eval_results.json")
