@@ -13,24 +13,27 @@ from tqdm import tqdm
 import json
 from pprint import pprint
 
+
 class Agent:
     def __init__(self, args, config):
         self.args = args
         self.config = config
         self.log_path = os.path.join(args.log_folder, args.trial_name)
         if os.path.exists(self.log_path):
-            checkpoint_path = get_last_checkpoint(self.log_path) #check if there is a saved checkpoint
-        else: 
+            # check if there is a saved checkpoint
+            checkpoint_path = get_last_checkpoint(self.log_path)
+        else:
             checkpoint_path = None
-        if checkpoint_path: #if it exists, resume from the checkpoint
+        if checkpoint_path:  # if it exists, resume from the checkpoint
             self.checkpoint_path = checkpoint_path
             self.args.resume = True
-        else: #otherwise, start from scratch
+        else:  # otherwise, start from scratch
             self.checkpoint_path = None
             self.args.resume = False
         init_log_path(self.log_path, args)
         if args.is_closed_source_downstream:
-            provider, base_url = is_supported_closed_source_model(config.model.downstream)
+            provider, base_url = is_supported_closed_source_model(
+                config.model.downstream)
             api_key = getattr(config.api_key, provider)
         else:
             api_key = 'EMPTY'
@@ -89,11 +92,11 @@ class Agent:
             text = output
             answer, prob = parse_answer_prob(text)
             # use log score
-            if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY: 
-                # Response did not include confidence report or was formatted 
+            if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY:
+                # Response did not include confidence report or was formatted
                 # such that the reported confidence could not be parsed
                 rewards.append(np.log(prob))
-  
+
             elif answer == gt_answer:
                 # clip prob to avoid log(0)
                 prob = min(1, max(prob, 1e-10))
@@ -102,7 +105,7 @@ class Agent:
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
                 rewards.append(np.log(tmp))
-                
+
         return rewards
 
     def train(self, trainer_name='GRPO'):
@@ -110,25 +113,26 @@ class Agent:
         # minimum example
         trainer_config = GRPOConfig(output_dir=str(self.log_path),
                                     logging_steps=self.config.train.logging_steps,
-                                    save_steps = self.config.train.save_steps, #checkpointing at 250 steps
+                                    save_steps=self.config.train.save_steps,  # checkpointing at 250 steps
                                     temperature=self.config.train.gen_temperature,
                                     top_p=self.config.train.top_p,
                                     top_k=self.config.train.top_k,
                                     use_vllm=self.config.train.use_vllm,
                                     vllm_server_host='localhost',
                                     vllm_server_port=self.config.resources.action_port,
-                                    learning_rate=float(self.config.train.learning_rate),
+                                    learning_rate=float(
+                                        self.config.train.learning_rate),
                                     scale_rewards=self.config.train.scale_rewards,
                                     max_prompt_length=self.config.train.max_prompt_length,
                                     max_completion_length=self.config.train.max_completion_length,
                                     num_generations=self.config.train.num_generations,
-                                    save_total_limit=3, 
-                                    max_grad_norm=self.config.train.max_grad_norm, 
-                                    num_iterations=self.config.train.num_iterations, 
-                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size, 
-                                    beta = self.config.train.beta
-                                ) 
-                                    
+                                    save_total_limit=3,
+                                    max_grad_norm=self.config.train.max_grad_norm,
+                                    num_iterations=self.config.train.num_iterations,
+                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size,
+                                    beta=self.config.train.beta
+                                    )
+
         trainer = GRPOTrainer(model=self.config.model.policy,
                               reward_funcs=self.reward_func,
                               args=trainer_config,
@@ -140,7 +144,8 @@ class Agent:
 
         # 1. Load model and tokenizer from checkpoint
         print(f"Loading model from checkpoint: {self.checkpoint_path}")
-        model = AutoModelForCausalLM.from_pretrained(self.checkpoint_path).to("cuda")
+        model = AutoModelForCausalLM.from_pretrained(
+            self.checkpoint_path).to("cuda")
         tokenizer = AutoTokenizer.from_pretrained(self.checkpoint_path)
         model.eval()
 
@@ -152,7 +157,7 @@ class Agent:
             split=self.config.dataset.split_names[1]
         )
 
-        # 3. Loop through examples and generate completions, then send to downstream model 
+        # 3. Loop through examples and generate completions, then send to downstream model
         calibrated_lm_answers = []
         calibrated_lm_probabilities = []
         calibrated_entropies = []
@@ -171,9 +176,10 @@ class Agent:
             # pprint(gt_answer)
             # print('OPTIONS')
             # pprint(options)
-        
-            inputs = tokenizer(prompt[0]["content"], return_tensors="pt").to("cuda")
-      
+
+            inputs = tokenizer(prompt[0]["content"],
+                               return_tensors="pt").to("cuda")
+
             with torch.no_grad():
                 output = model.generate(
                     **inputs,
@@ -182,20 +188,23 @@ class Agent:
                     top_p=self.config.train.top_p,
                     do_sample=True
                 )
-            completion = tokenizer.decode(output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
-         
+            completion = tokenizer.decode(
+                output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
+
             # print('POLICY MODEL COMPLETION')
             # pprint(completion)
 
             calibrated_prompt = build_downstream_prompt(
                 dataset_name=self.config.dataset.name,
-                question_text= question,
-                option_list = options,
+                question_text=question,
+                option_list=options,
                 hint_text=completion,
             )
 
-            calibrated_output = self.send_message_downstream({'role': 'user', 'content': calibrated_prompt})
-            calibrated_answer, calibrated_prob = parse_answer_prob(calibrated_output)
+            calibrated_output = self.send_message_downstream(
+                {'role': 'user', 'content': calibrated_prompt})
+            calibrated_answer, calibrated_prob = parse_answer_prob(
+                calibrated_output)
 
             calibrated_lm_answers.append(calibrated_answer)
             calibrated_lm_probabilities.append(calibrated_prob)
@@ -204,10 +213,11 @@ class Agent:
                 dataset_name=self.config.dataset.name,
                 question_text=question,
                 option_list=options,
-                hint_text= None,
+                hint_text=None,
             )
 
-            baseline_output = self.send_message_downstream({'role': 'user', 'content': baseline_prompt})
+            baseline_output = self.send_message_downstream(
+                {'role': 'user', 'content': baseline_prompt})
             baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
 
             baseline_lm_answers.append(baseline_answer)
@@ -224,26 +234,35 @@ class Agent:
             # print(f"{baseline_answer} (correct answer is {gt_answer})")
 
             if self.args.entropy:
-                # Implement uncertainty quantification, referencing: [1] Q. 
+                # Implement uncertainty quantification, referencing: [1] Q.
                 # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
-                mc_samples = 40 # Use default of 40 MC samples (consistent with Lyu)
+                # Use default of 40 MC samples (consistent with Lyu)
+                mc_samples = 40
 
                 opt_count = len(options)
-                
-                cal_opt_freq= np.zeros((opt_count))
+
+                cal_opt_freq = np.zeros((opt_count))
                 base_opt_freq = np.zeros((opt_count))
                 for mc_sample in tqdm(range(mc_samples)):
-                    calibrated_output = self.send_message_downstream({'role': 'user', 'content': calibrated_prompt})
-                    calibrated_answer, calibrated_prob = parse_answer_prob(calibrated_output)
+                    calibrated_output = self.send_message_downstream(
+                        {'role': 'user', 'content': calibrated_prompt})
+                    calibrated_answer, calibrated_prob = parse_answer_prob(
+                        calibrated_output)
 
-                    baseline_output = self.send_message_downstream({'role': 'user', 'content': baseline_prompt})
-                    baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
+                    baseline_output = self.send_message_downstream(
+                        {'role': 'user', 'content': baseline_prompt})
+                    baseline_answer, baseline_prob = parse_answer_prob(
+                        baseline_output)
 
-                    if type(calibrated_answer) == int and calibrated_answer != -1: # Don't count invalid responses (-1 or non-int format)
-                        cal_opt_freq[calibrated_answer-1] += 1 # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                    # Don't count invalid responses (-1 or non-int format)
+                    if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer < opt_count:
+                        # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                        cal_opt_freq[calibrated_answer-1] += 1
 
-                    if type(baseline_answer) == int and baseline_answer != -1:  # Don't count invalid responses (-1 or non-int format)
-                        base_opt_freq[baseline_answer-1] += 1 # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                    # Don't count invalid responses (-1 or non-int format)
+                    if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer < opt_count:
+                        # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                        base_opt_freq[baseline_answer-1] += 1
 
                 # Normalize frequencies based on number of valid answers
                 cal_opt_freq = cal_opt_freq/np.sum(cal_opt_freq)
@@ -252,29 +271,37 @@ class Agent:
                 calibrated_option_entropy = np.zeros((opt_count))
                 baseline_option_entropy = np.zeros((opt_count))
                 for opt in range(opt_count):
-                    calibrated_option_entropy[opt] = cal_opt_freq[opt]*np.log(cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
-                    baseline_option_entropy[opt] = base_opt_freq[opt]*np.log(base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
-                calibrated_sample_entropy = 1-((-1/np.log(opt_count))*np.sum(calibrated_option_entropy))
-                baseline_sample_entropy = 1-((-1/np.log(opt_count))*np.sum(baseline_option_entropy))
+                    calibrated_option_entropy[opt] = cal_opt_freq[opt]*np.log(
+                        cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
+                    baseline_option_entropy[opt] = base_opt_freq[opt]*np.log(
+                        base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
+                calibrated_sample_entropy = 1 - ((-1/np.log(opt_count))*np.sum(calibrated_option_entropy))
+                baseline_sample_entropy = 1 - ((-1/np.log(opt_count))*np.sum(baseline_option_entropy))
 
-                print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
-                print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
+                print(
+                    f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
+                print(
+                    f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
 
                 calibrated_entropies.append(calibrated_sample_entropy)
                 baseline_entropies.append(baseline_sample_entropy)
-        
+
         # 4. Calcute metrics
-        calibrated_acc = compute_accuracy(eval_dataset["gt_answer"], calibrated_lm_answers)
-        calibrated_ece = compute_ece(eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+        calibrated_acc = compute_accuracy(
+            eval_dataset["gt_answer"], calibrated_lm_answers)
+        calibrated_ece = compute_ece(
+            eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
         calibrated_confidence_avg = np.mean(calibrated_lm_probabilities)
         calibrated_confidence_std = np.std(calibrated_lm_probabilities)
-        calibrated_entropy_mean = np.mean(calibrated_entropies)
+        calibrated_entropy_mean = np.nanmean(calibrated_entropies)
 
-        baseline_acc = compute_accuracy(eval_dataset["gt_answer"], baseline_lm_answers)
-        baseline_ece = compute_ece(eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+        baseline_acc = compute_accuracy(
+            eval_dataset["gt_answer"], baseline_lm_answers)
+        baseline_ece = compute_ece(
+            eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
         baseline_confidence_avg = np.mean(baseline_lm_probabilities)
         baseline_confidence_std = np.std(baseline_lm_probabilities)
-        baseline_entropy_mean = np.mean(baseline_entropies)
+        baseline_entropy_mean = np.nanmean(baseline_entropies)
 
         # 5. Log Metrics
         results = {
@@ -298,6 +325,3 @@ class Agent:
             json.dump(results, f, indent=4)
 
         print(f"Metric Results saved to {log_file}")
-
-
-
