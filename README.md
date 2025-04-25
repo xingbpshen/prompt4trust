@@ -76,4 +76,6 @@ Run the following command to evaluate the trained policy model:
 python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --test --ni 
 ```
 
+To evaluate the entropy-based consistency metric, add the flag `--entropy`.
+
 Please test it out and let me know (by raising a GitHub issue) if you encounter any issue.
