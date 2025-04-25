@@ -70,4 +70,10 @@ Running the above command once will start:
 
 Runtime related logs will be saved in `{LOG_FOLDER}/{TRIAL_NAME}/` folder.
 
+## 3. Evaluation
+Run the following command to evaluate the trained policy model:
+```bash
+python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TRIAL_NAME} --test --ni 
+```
+
 Please test it out and let me know (by raising a GitHub issue) if you encounter any issue.
