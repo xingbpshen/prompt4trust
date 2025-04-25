@@ -11,7 +11,6 @@ Verbalized Confidence Calibration in Large Language Models with Reinforcement Le
   </a>
 </p>
 
-# Work in Progress
 
 ## 0. Before you start
 Make sure you have at least **3** NVIDIA GPUs with adequate memory (memory requirement depends on the scale of the LLM you want to use) if you wish to use open-source downstream LLMs. Otherwise, you can use supported closed-source LLMs (see list below and see [**section 1.3**](#13-modifying-config)) as downstream, which only requires at least **2** GPUs.
