@@ -1,0 +1,51 @@
+dataset:
+  name: "pmcvqa"
+  local_path: "/cim/data/PMC-VQA"  # change this to your dataset path
+  image_root: "/cim/data/PMC-VQA/images/" 
+  split_names: ["train_5k", "dev_50", "test"]
+  max_num_options: 4
+
+resources:
+  cache_dir: "/cim/anitakriz/.cache"  # change this to your cache path
+  action_port: 8000  # change this to your port, e.g., 8000
+  downstream_port: 8001  # change this to your port, e.g., 8001
+  action_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
+  downstream_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
+  # the following CUDA devices are used for different components, no overlap is allowed
+  policy_cuda: "0"  # change this to your CUDA device id, e.g., "3,4"
+  action_cuda: "1"  # change this to your CUDA device id, e.g., "0"
+  downstream_cuda: "2,3"  # change this to your CUDA device id, e.g., "1,2"
+
+model:
+  # change this to your model path or HF model name
+  policy: "/cim/anitakriz/public_lms/Qwen2-1.5B-Instruct"
+  # change this to your model path or HF model name or closed-source model name such as "gemini-2.0-flash-001"
+  downstream: "/cim/anitakriz/public_lms/Qwen2-VL-2B-Instruct"
+
+# if the downstream model is a closed-source model, please set the following parameters
+api_key:
+  openai: ""  # change this to your OpenAI API key
+  google: ""  # change this to your Google API key
+
+train:  # for more details, please refer to the GRPOConfig class from TRL
+  logging_steps: 10
+  save_steps: 200
+  gen_temperature: 0.1  # can try to lower this value
+  top_p: 0.95
+  top_k: 50
+  use_vllm: true  # do not change this
+  learning_rate: 1e-6
+  scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
+  max_prompt_length: 2048  # can be adjusted
+  max_completion_length: 256  # can be adjusted
+  num_generations: 8  # do not change this
+  num_iterations: 4 # Can be adjusted (default is 1)
+  per_device_train_batch_size: 32 # Can be adjusted but (num_processes * per_device_batch_size) must be divisible by num_generations (default is 8)
+  beta: 0.04 # Can be adjusted to set KL divergence penalty strength
+  max_grad_norm: 1.0 # Can be adjusted (default is 1.0)
+
+downstream:
+  gen_temperature: 0.1  # can try to lower this value
+  top_p: 0.95
+  top_k: 50
+  max_completion_tokens: 256 # can be adjusted, max completion tokens

@@ -81,7 +81,15 @@ def init_log_path(log_path, args): #changed to be able to use checkpoints in the
     else:
         os.makedirs(log_path)
 
-
+def parse_answer_prob_vqa(text):
+    """Extracts predicted answer letter and confidence score from model output."""
+    answer_match = re.search(r"answer is\s+([A-D])", text, re.IGNORECASE)
+    confidence_match = re.search(r"confidence\s+(\d{1,3})", text, re.IGNORECASE)
+    if answer_match and confidence_match:
+        pred = answer_match.group(1).upper()
+        confidence = min(float(confidence_match.group(1)), 100.0) / 100
+        return pred, confidence
+    return -1, INVALID_RESPONSE_FORMAT_PENALTY
 
 def parse_answer_prob(text):
     # match = re.search(get_match_pattern(), text)

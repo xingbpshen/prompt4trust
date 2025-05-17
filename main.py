@@ -47,6 +47,17 @@ def main():
             num_gpus = len(config.resources.downstream_cuda.split(","))
             env2["XDG_CACHE_HOME"] = config.resources.cache_dir
             # run vllm serve
+            command = [
+                "vllm", "serve", config.model.downstream,
+                f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
+                f"--tensor_parallel_size={num_gpus}",
+                "--host=localhost",
+                f"--port={config.resources.downstream_port}",
+                f"--dtype={dtype}",
+                f"--allowed-local-media-path={config.dataset.image_root}"
+            ]
+            util.info('main.py', f"Launching vLLM with command: {' '.join(command)}")
+
             downstream_proc = subprocess.Popen(["vllm",
                                                 "serve",
                                                 config.model.downstream,
@@ -54,6 +65,7 @@ def main():
                                                 f"--tensor_parallel_size={num_gpus}",
                                                 f"--host=localhost",
                                                 f"--port={config.resources.downstream_port}",
+                                                f"--allowed-local-media-path={config.dataset.image_root}",
                                                 f"--dtype={dtype}"],
                                                env=env2,
                                                stdout=subprocess.DEVNULL,
@@ -134,6 +146,7 @@ def main():
                                                 f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
                                                 f"--tensor_parallel_size={num_gpus}",
                                                 f"--host=localhost",
+                                                f"--allowed-local-media-path={config.dataset.image_root}",
                                                 f"--port={config.resources.downstream_port}",
                                                 f"--dtype={dtype}"],
                                                env=env2,
@@ -144,6 +157,16 @@ def main():
         # wait for vLLM to be ready
         if not args.is_closed_source_downstream:
             # check if two ports are available for querying
+            command = [
+                "vllm", "serve", config.model.downstream,
+                f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
+                f"--tensor_parallel_size={num_gpus}",
+                "--host=localhost",
+                f"--port={config.resources.downstream_port}",
+                f"--dtype={dtype}",
+                f"--allowed-local-media-path={config.dataset.image_root}"
+            ]
+            util.info('main.py', f"Launching vLLM with command: {' '.join(command)}")
             util.info('main.py', 'Waiting for vLLM to be ready (for downstream)...')
             wait_until_ready(port=config.resources.downstream_port, subproc=downstream_proc)
         util.info('main.py', 'Waiting for TRL vLLM-Serve to be ready (for action sampling)...')

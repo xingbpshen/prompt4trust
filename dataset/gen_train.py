@@ -1,18 +1,24 @@
-import json
+import csv
 import random
 
-input_path = "/network/scratch/a/anita.kriz/vccrl-llm/data/medmcqa/train.json" #TODO
-output_path = "/network/scratch/a/anita.kriz/vccrl-llm/data/medmcqa/train_5k.json" #TODO
+input_path = "/cim/data/PMC-VQA/train.csv"
+output_path = "/cim/data/PMC-VQA/train_10.csv"
 
-SEED = 42  
+SEED = 42
 random.seed(SEED)
 
-with open(input_path, "r") as f:
-    data = [json.loads(line) for line in f.readlines()]
+# Read CSV into list of dicts
+with open(input_path, "r", newline='') as f:
+    reader = csv.DictReader(f)
+    data = list(reader)
 
-subset = random.sample(data, 5000)
+# Sample 5k entries (or fewer if the dataset is smaller)
+sample_size = min(10, len(data))
+sampled_data = random.sample(data, sample_size)
 
-with open(output_path, "w") as f:
-    for entry in subset:
-        f.write(json.dumps(entry) + "\n")
+# Write sampled data back to CSV
+with open(output_path, "w", newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=reader.fieldnames)
+    writer.writeheader()
+    writer.writerows(sampled_data)
 

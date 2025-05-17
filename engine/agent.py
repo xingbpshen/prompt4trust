@@ -1,5 +1,5 @@
 from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece
+from engine import init_log_path, parse_answer_prob, parse_answer_prob_vqa, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece
 import os
 import dataset
 from prompt import build_downstream_prompt
@@ -8,11 +8,10 @@ from openai import OpenAI
 import torch
 from transformers.trainer_utils import get_last_checkpoint
 from pprint import pprint
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, Qwen2VLForConditionalGeneration
 from tqdm import tqdm
 import json
 from pprint import pprint
-
 
 class Agent:
     def __init__(self, args, config):
@@ -38,6 +37,7 @@ class Agent:
         else:
             api_key = 'EMPTY'
             base_url = f'http://localhost:{config.resources.downstream_port}/v1'
+
         self.downstream_model = OpenAI(api_key=api_key,
                                        base_url=base_url)
 
@@ -47,6 +47,7 @@ class Agent:
         :param message: a dict of conversation, e.g. {'role': 'user', 'content': 'How to cook chicken curry?'}
         :return: the response from the downstream model, pure text
         """
+    
         if self.args.is_closed_source_downstream:
             model = self.config.model.downstream
         else:
@@ -71,17 +72,43 @@ class Agent:
         questions = kwargs.get('question', None)
         gt_answers = kwargs.get('gt_answer', None)
         option_lists = kwargs.get('options', None)
+        image_paths = kwargs.get('image_path', None)
 
-        assert questions is not None and gt_answers is not None and option_lists is not None
+        assert questions is not None and gt_answers is not None and option_lists is not None and image_paths is not None
         # the completions are used for another LLM as prompt
         conversation_list = []
-        for completion, question, option_list in zip(completions, questions, option_lists):
+        for completion, question, option_list, image_path in zip(completions, questions, option_lists, image_paths):
             # build the prompt
             prompt = build_downstream_prompt(dataset_name=self.config.dataset.name,
                                              question_text=question,
                                              option_list=option_list,
                                              hint_text=completion[0]['content'])
-            conversation_list.append({'role': 'user', 'content': prompt})
+            if self.config.dataset.name == 'medmcqa':
+                conversation_list.append({'role': 'user', 'content': prompt})
+            elif self.config.dataset.name == 'pmcvqa':
+                absolute_image_path = os.path.abspath(image_path)
+                assert absolute_image_path.startswith(self.config.dataset.image_root)
+                assert os.path.exists(absolute_image_path)
+                image_url = f"file://{absolute_image_path}"
+                conversation_list.append(
+                                    {
+                                        'role': 'user', 
+                                        'content': [
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {
+                                                    "url": image_url,
+                                                }
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": prompt,
+                                            }
+                                        ]
+                                        
+                                    }
+                                )
+            
         # run the downstream model
         outputs = []
         for conversation in conversation_list:
@@ -90,7 +117,11 @@ class Agent:
         rewards = []
         for output, gt_answer in zip(outputs, gt_answers):
             text = output
-            answer, prob = parse_answer_prob(text)
+            if self.config.dataset.name == 'pmcvqa':
+                answer, prob = parse_answer_prob_vqa(text)
+
+            elif self.config.dataset.name == 'medmcqa':
+                answer, prob = parse_answer_prob(text)
             # use log score
             if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY:
                 # Response did not include confidence report or was formatted
@@ -132,12 +163,12 @@ class Agent:
                                     per_device_train_batch_size=self.config.train.per_device_train_batch_size,
                                     beta=self.config.train.beta
                                     )
-
+    
         trainer = GRPOTrainer(model=self.config.model.policy,
-                              reward_funcs=self.reward_func,
-                              args=trainer_config,
-                              train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0]))
-
+                    reward_funcs=self.reward_func,
+                    args=trainer_config,
+                    train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0]))
+      
         trainer.train(resume_from_checkpoint=self.checkpoint_path)
 
     def eval(self):
