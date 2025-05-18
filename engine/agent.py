@@ -54,8 +54,8 @@ class Agent:
             models = self.downstream_model.models.list()
             model = models.data[0].id
         chat_completion = self.downstream_model.chat.completions.create(model=model,
-                                                                        temperature=self.config.downstream.gen_temperature,
-                                                                        top_p=self.config.downstream.top_p,
+                                                                        # temperature=self.config.downstream.gen_temperature,
+                                                                        # top_p=self.config.downstream.top_p,
                                                                         max_completion_tokens=self.config.downstream.max_completion_tokens,
                                                                         n=1,
                                                                         messages=[message])
