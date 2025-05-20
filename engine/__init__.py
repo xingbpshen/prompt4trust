@@ -129,7 +129,7 @@ def is_ready(port):
             return True
 
 
-def wait_until_ready(port, subproc, timeout=300):
+def wait_until_ready(port, subproc, timeout=500):
     """
     Wait until the vllm server is ready to accept requests.
     :param port: The port on which the vllm server is running.

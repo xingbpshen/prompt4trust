@@ -1,26 +1,26 @@
 dataset:
   name: "pmcvqa"
-  local_path: "/cim/data/PMC-VQA"  # change this to your dataset path
-  image_root: "/cim/data/PMC-VQA/images/" 
+  local_path: "/XXX/PMC-VQA"  # change this to your dataset path
+  image_root: "/XXX/PMC-VQA/images/"
   split_names: ["train_5k", "dev_50", "test"]
   max_num_options: 4
 
 resources:
-  cache_dir: "/cim/anitakriz/.cache"  # change this to your cache path
+  cache_dir: "/XXX/.cache"  # change this to your cache path
   action_port: 8000  # change this to your port, e.g., 8000
   downstream_port: 8001  # change this to your port, e.g., 8001
-  action_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
-  downstream_gpu_memory_utilization: 0.9  # change this to your GPU memory utilization, e.g., 0.8
+  action_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
+  downstream_gpu_memory_utilization: 0.8  # change this to your GPU memory utilization, e.g., 0.8
   # the following CUDA devices are used for different components, no overlap is allowed
-  policy_cuda: "1"  # change this to your CUDA device id, e.g., "3,4"
-  action_cuda: "2"  # change this to your CUDA device id, e.g., "0"
-  downstream_cuda: "3,4"  # change this to your CUDA device id, e.g., "1,2"
+  policy_cuda: "X"  # change this to your CUDA device id, e.g., "3,4"
+  action_cuda: "X"  # change this to your CUDA device id, e.g., "0"
+  downstream_cuda: "X,X"  # change this to your CUDA device id, e.g., "1,2"
 
 model:
   # change this to your model path or HF model name
-  policy: "/cim/anitakriz/public_lms/Qwen2-0.5B-Instruct"
+  policy: "/XXX/Qwen2-0.5B-Instruct"
   # change this to your model path or HF model name or closed-source model name such as "gemini-2.0-flash-001"
-  downstream: "/cim/anitakriz/public_lms/Qwen2-VL-2B-Instruct"
+  downstream: "/XXX/Qwen2-VL-2B-Instruct"
 
 # if the downstream model is a closed-source model, please set the following parameters
 api_key:

@@ -5,6 +5,7 @@ test2.py
 test3.py
 config/medmcqa_my.yml
 config/medmcqa_my2.yml
+config/pmcvqa_my.yml
 run_my.sh
 run_my2.sh
 
