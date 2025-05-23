@@ -1,4 +1,11 @@
-policy_model_part1 = "Draft a prompt to help a vision-language model answer a multiple-choice question about an image with calibrated confidence."
+policy_model_part1 =  """
+                        "You are assisting a downstream vision-language model (VLM) with a multiple-choice question about an image. "
+                        "You do not have access to the image or the correct answer, Do not give an answer to the question. "
+                        "Your task is to write a neutral hint based only on the question and answer options, "
+                        "to guide the VLM on what visual evidence to consider when answering. "
+                        "The VLM will use the question, your hint, and the image to give a response that also reflects its own confidence."
+                    """
+
 
 policy_model_part2 = "Prompt draft:"
 

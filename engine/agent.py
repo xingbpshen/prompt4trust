@@ -187,7 +187,6 @@ class Agent:
             # TODO change this hard coding
             split=self.config.dataset.split_names[1]
         )
-
         # 3. Loop through examples and generate completions, then send to downstream model
         calibrated_lm_answers = []
         calibrated_lm_probabilities = []
@@ -201,16 +200,9 @@ class Agent:
             gt_answer = sample["gt_answer"]
             prompt = sample["prompt"]
 
-            # print('QUESTION')
-            # pprint(question)
-            # print('GT ANSWER')
-            # pprint(gt_answer)
-            # print('OPTIONS')
-            # pprint(options)
-
             inputs = tokenizer(prompt[0]["content"],
                                return_tensors="pt").to("cuda")
-
+            
             with torch.no_grad():
                 output = model.generate(
                     **inputs,
@@ -222,9 +214,6 @@ class Agent:
             completion = tokenizer.decode(
                 output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
 
-            # print('POLICY MODEL COMPLETION')
-            # pprint(completion)
-
             calibrated_prompt = build_downstream_prompt(
                 dataset_name=self.config.dataset.name,
                 question_text=question,
@@ -234,8 +223,13 @@ class Agent:
 
             calibrated_output = self.send_message_downstream(
                 {'role': 'user', 'content': calibrated_prompt})
-            calibrated_answer, calibrated_prob = parse_answer_prob(
-                calibrated_output)
+
+            if self.config.dataset.name == 'medmcqa':
+                calibrated_answer, calibrated_prob = parse_answer_prob(
+                    calibrated_output)
+            elif self.config.dataset.name == 'pmcvqa':
+                calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
+                    calibrated_output)
 
             calibrated_lm_answers.append(calibrated_answer)
             calibrated_lm_probabilities.append(calibrated_prob)
@@ -249,20 +243,13 @@ class Agent:
 
             baseline_output = self.send_message_downstream(
                 {'role': 'user', 'content': baseline_prompt})
-            baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
-
+            if self.config.dataset.name == 'medmcqa':
+                baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
+            elif self.config.dataset.name == 'pmcvqa':
+                baseline_answer, baseline_prob = parse_answer_prob_vqa(baseline_output)
+   
             baseline_lm_answers.append(baseline_answer)
             baseline_lm_probabilities.append(baseline_prob)
-
-            # print('CALIBRATED DOWNSTREAM OUTPUT')
-            # pprint(calibrated_output)
-            # print('CALIBRATED ANSWER')
-            # print(f"{calibrated_answer} (correct answer is {gt_answer})")
-
-            # print('BASELINE DOWNSTREAM OUTPUT')
-            # pprint(baseline_output)
-            # print('BASELINE ANSWER')
-            # print(f"{baseline_answer} (correct answer is {gt_answer})")
 
             if self.args.entropy:
                 # Implement uncertainty quantification, referencing: [1] Q.
