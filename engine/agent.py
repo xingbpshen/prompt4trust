@@ -13,6 +13,7 @@ from tqdm import tqdm
 import json
 from pprint import pprint
 
+
 class Agent:
     def __init__(self, args, config):
         self.args = args
@@ -47,15 +48,15 @@ class Agent:
         :param message: a dict of conversation, e.g. {'role': 'user', 'content': 'How to cook chicken curry?'}
         :return: the response from the downstream model, pure text
         """
-    
+
         if self.args.is_closed_source_downstream:
             model = self.config.model.downstream
         else:
             models = self.downstream_model.models.list()
             model = models.data[0].id
         chat_completion = self.downstream_model.chat.completions.create(model=model,
-                                                                        # temperature=self.config.downstream.gen_temperature,
-                                                                        # top_p=self.config.downstream.top_p,
+                                                                        temperature=self.config.downstream.gen_temperature,
+                                                                        top_p=self.config.downstream.top_p,
                                                                         max_completion_tokens=self.config.downstream.max_completion_tokens,
                                                                         n=1,
                                                                         messages=[message])
@@ -74,41 +75,53 @@ class Agent:
         option_lists = kwargs.get('options', None)
         image_paths = kwargs.get('image_path', None)
 
+        # print('QUESTIONS')
+        # pprint(questions)
+        # print('GT ANSWERS')
+        # pprint(gt_answers)
+        # print('OPTIONS')
+        # pprint(option_lists)
+        # print('POLICY MODEL COMPLETIONS')
+        # pprint(completions)
+
         assert questions is not None and gt_answers is not None and option_lists is not None and image_paths is not None
         # the completions are used for another LLM as prompt
         conversation_list = []
         for completion, question, option_list, image_path in zip(completions, questions, option_lists, image_paths):
             # build the prompt
-            prompt = build_downstream_prompt(dataset_name=self.config.dataset.name,
-                                             question_text=question,
-                                             option_list=option_list,
-                                             hint_text=completion[0]['content'])
+            prompt = build_downstream_prompt(
+                dataset_name=self.config.dataset.name,
+                question_text=question,
+                option_list=option_list,
+                hint_text=completion[0]['content']
+            )
             if self.config.dataset.name == 'medmcqa':
                 conversation_list.append({'role': 'user', 'content': prompt})
             elif self.config.dataset.name == 'pmcvqa':
                 absolute_image_path = os.path.abspath(image_path)
-                assert absolute_image_path.startswith(self.config.dataset.image_root)
+                assert absolute_image_path.startswith(
+                    self.config.dataset.image_root)
                 assert os.path.exists(absolute_image_path)
                 image_url = f"file://{absolute_image_path}"
                 conversation_list.append(
-                                    {
-                                        'role': 'user', 
-                                        'content': [
-                                            {
-                                                "type": "image_url",
-                                                "image_url": {
-                                                    "url": image_url,
-                                                }
-                                            },
-                                            {
-                                                "type": "text",
-                                                "text": prompt,
-                                            }
-                                        ]
-                                        
-                                    }
-                                )
-            
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url,
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt,
+                            }
+                        ]
+
+                    }
+                )
+
         # run the downstream model
         outputs = []
         for conversation in conversation_list:
@@ -120,6 +133,11 @@ class Agent:
             if self.config.dataset.name == 'pmcvqa':
                 answer, prob = parse_answer_prob_vqa(text)
 
+                # print('DOWNSTREAM OUTPUT')
+                # pprint(output)
+                # print('ANSWER')
+                # print(f"{answer} (correct answer is {gt_answer})")
+
             elif self.config.dataset.name == 'medmcqa':
                 answer, prob = parse_answer_prob(text)
             # use log score
@@ -128,47 +146,61 @@ class Agent:
                 # such that the reported confidence could not be parsed
                 rewards.append(np.log(prob))
 
+                # print('REWARD (INVALID RESPONSE)')
+                # print(prob, np.log(prob))
+
             elif answer == gt_answer:
                 # clip prob to avoid log(0)
                 prob = min(1, max(prob, 1e-10))
                 rewards.append(np.log(prob))
 
+                # print('REWARD (CORRECT RESPONSE)')
+                # print(prob, np.log(prob))
+
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
                 rewards.append(np.log(tmp))
+
+        #         print('REWARD (INCORRECT RESPONSE)')
+        #         print(tmp, np.log(tmp))
+        # print('REWARDS')
+        # pprint(rewards)
 
         return rewards
 
     def train(self, trainer_name='GRPO'):
         assert trainer_name == 'GRPO'
         # minimum example
-        trainer_config = GRPOConfig(output_dir=str(self.log_path),
-                                    logging_steps=self.config.train.logging_steps,
-                                    save_steps=self.config.train.save_steps,  # checkpointing at 250 steps
-                                    temperature=self.config.train.gen_temperature,
-                                    top_p=self.config.train.top_p,
-                                    top_k=self.config.train.top_k,
-                                    use_vllm=self.config.train.use_vllm,
-                                    vllm_server_host='localhost',
-                                    vllm_server_port=self.config.resources.action_port,
-                                    learning_rate=float(
-                                        self.config.train.learning_rate),
-                                    scale_rewards=self.config.train.scale_rewards,
-                                    max_prompt_length=self.config.train.max_prompt_length,
-                                    max_completion_length=self.config.train.max_completion_length,
-                                    num_generations=self.config.train.num_generations,
-                                    save_total_limit=3,
-                                    max_grad_norm=self.config.train.max_grad_norm,
-                                    num_iterations=self.config.train.num_iterations,
-                                    per_device_train_batch_size=self.config.train.per_device_train_batch_size,
-                                    beta=self.config.train.beta
-                                    )
-    
-        trainer = GRPOTrainer(model=self.config.model.policy,
-                    reward_funcs=self.reward_func,
-                    args=trainer_config,
-                    train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0]))
-      
+        trainer_config = GRPOConfig(
+            output_dir=str(self.log_path),
+            logging_steps=self.config.train.logging_steps,
+            save_steps=self.config.train.save_steps,  # checkpointing at 250 steps
+            temperature=self.config.train.gen_temperature,
+            top_p=self.config.train.top_p,
+            top_k=self.config.train.top_k,
+            use_vllm=self.config.train.use_vllm,
+            vllm_server_host='localhost',
+            vllm_server_port=self.config.resources.action_port,
+            learning_rate=float(
+                self.config.train.learning_rate),
+            scale_rewards=self.config.train.scale_rewards,
+            max_prompt_length=self.config.train.max_prompt_length,
+            max_completion_length=self.config.train.max_completion_length,
+            num_generations=self.config.train.num_generations,
+            save_total_limit=3,
+            max_grad_norm=self.config.train.max_grad_norm,
+            num_iterations=self.config.train.num_iterations,
+            per_device_train_batch_size=self.config.train.per_device_train_batch_size,
+            beta=self.config.train.beta
+        )
+
+        trainer = GRPOTrainer(
+            model=self.config.model.policy,
+            reward_funcs=self.reward_func,
+            args=trainer_config,
+            train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0])
+        )
+
         trainer.train(resume_from_checkpoint=self.checkpoint_path)
 
     def eval(self):
@@ -202,13 +234,13 @@ class Agent:
 
             inputs = tokenizer(prompt[0]["content"],
                                return_tensors="pt").to("cuda")
-            
+
             with torch.no_grad():
                 output = model.generate(
                     **inputs,
-                    max_new_tokens=self.config.train.max_completion_length,
-                    temperature=self.config.train.gen_temperature,
-                    top_p=self.config.train.top_p,
+                    max_new_tokens=self.config.downstream.max_completion_tokens,
+                    temperature=self.config.downstream.gen_temperature,
+                    top_p=self.config.downstream.top_p,
                     do_sample=True
                 )
             completion = tokenizer.decode(
@@ -247,7 +279,7 @@ class Agent:
                 baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
             elif self.config.dataset.name == 'pmcvqa':
                 baseline_answer, baseline_prob = parse_answer_prob_vqa(baseline_output)
-   
+
             baseline_lm_answers.append(baseline_answer)
             baseline_lm_probabilities.append(baseline_prob)
 
