@@ -2,7 +2,7 @@ dataset:
   name: "pmcvqa"
   local_path: "/XXX/PMC-VQA"  # change this to your dataset path
   image_root: "/XXX/PMC-VQA/images/"
-  split_names: ["train_5k", "dev_50", "test"]
+  split_names: ["train_5k", "test_50", "test"]
   max_num_options: 4
 
 resources:
@@ -18,7 +18,7 @@ resources:
 
 model:
   # change this to your model path or HF model name
-  policy: "/XXX/Qwen2-0.5B-Instruct"
+  policy: "/XXX/Qwen2.5-1.5B-Instruct"
   # change this to your model path or HF model name or closed-source model name such as "gemini-2.0-flash-001"
   downstream: "/XXX/Qwen2-VL-2B-Instruct"
 
@@ -30,7 +30,7 @@ api_key:
 train:  # for more details, please refer to the GRPOConfig class from TRL
   logging_steps: 10
   save_steps: 200
-  gen_temperature: 0.1  # can try to lower this value
+  gen_temperature: 0.6
   top_p: 0.95
   top_k: 50
   use_vllm: true  # do not change this
@@ -45,7 +45,7 @@ train:  # for more details, please refer to the GRPOConfig class from TRL
   max_grad_norm: 1.0 # Can be adjusted (default is 1.0)
 
 downstream:
-  gen_temperature: 0.1  # can try to lower this value
+  gen_temperature: 0.1
   top_p: 0.95
   top_k: 50
   max_completion_tokens: 256 # can be adjusted, max completion tokens

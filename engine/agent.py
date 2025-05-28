@@ -1,5 +1,5 @@
 from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob, parse_answer_prob_vqa, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece
+from engine import init_log_path, parse_answer_prob, parse_answer_prob_vqa, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece, compute_brier_score
 import os
 import dataset
 from prompt import build_downstream_prompt
@@ -8,11 +8,14 @@ from openai import OpenAI
 import torch
 from transformers.trainer_utils import get_last_checkpoint
 from pprint import pprint
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, Qwen2VLForConditionalGeneration
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, Qwen2VLForConditionalGeneration, set_seed
 from tqdm import tqdm
 import json
 from pprint import pprint
+import pandas as pd 
 
+
+set_seed(1)
 
 class Agent:
     def __init__(self, args, config):
@@ -54,12 +57,15 @@ class Agent:
         else:
             models = self.downstream_model.models.list()
             model = models.data[0].id
-        chat_completion = self.downstream_model.chat.completions.create(model=model,
-                                                                        temperature=self.config.downstream.gen_temperature,
-                                                                        top_p=self.config.downstream.top_p,
-                                                                        max_completion_tokens=self.config.downstream.max_completion_tokens,
-                                                                        n=1,
-                                                                        messages=[message])
+        chat_completion = self.downstream_model.chat.completions.create(
+            model=model,
+            temperature=self.config.downstream.gen_temperature,
+            top_p=self.config.downstream.top_p,
+            max_completion_tokens=self.config.downstream.max_completion_tokens,
+            n=1,
+            messages=[message], 
+            seed=1
+        )
         return chat_completion.choices[0].message.content
 
     def reward_func(self, completions, **kwargs):
@@ -128,6 +134,8 @@ class Agent:
             outputs.append(self.send_message_downstream(conversation))
         # get the answer and prob from the outputs
         rewards = []
+        probs = []
+        predictions = []
         for output, gt_answer in zip(outputs, gt_answers):
             text = output
             if self.config.dataset.name == 'pmcvqa':
@@ -140,6 +148,10 @@ class Agent:
 
             elif self.config.dataset.name == 'medmcqa':
                 answer, prob = parse_answer_prob(text)
+
+            probs.append(prob)
+            predictions.append(answer)
+
             # use log score
             if answer == -1 and prob == INVALID_RESPONSE_FORMAT_PENALTY:
                 # Response did not include confidence report or was formatted
@@ -159,12 +171,37 @@ class Agent:
 
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
-                rewards.append(np.log(tmp))
+                rewards.append(np.log(tmp)-1)
 
         #         print('REWARD (INCORRECT RESPONSE)')
-        #         print(tmp, np.log(tmp))
+        #         print(tmp, np.log(tmp)-1)
         # print('REWARDS')
         # pprint(rewards)
+
+        # Compute additional metrics for logging purposes
+        # TODO: Update if num_generations or per_device_train_batch_size are 
+        # modified such that each batch has more than one question
+        batch_log = []
+        acc = compute_accuracy(gt_answers, predictions)
+        ece = compute_ece(gt_answers, predictions, probs)
+        brier = compute_brier_score(gt_answers, predictions, probs)
+
+        batch_log.append({
+            "accuracy": acc,
+            "ece": ece,
+            "brier": brier, 
+            "gt_answers": gt_answers,
+            "predictions": predictions,
+            "probs": probs,
+            "rewards": rewards
+        })
+
+        batch_df = pd.DataFrame(batch_log)
+        # Open csv file and append the batch log
+        if not os.path.exists(os.path.join(self.log_path, "train_log.csv")):
+            batch_df.to_csv(os.path.join(self.log_path, "train_log.csv"), mode='w', header=True, index=False)
+        else:
+            batch_df.to_csv(os.path.join(self.log_path, "train_log.csv"), mode='a', header=False, index=False)
 
         return rewards
 
@@ -174,7 +211,7 @@ class Agent:
         trainer_config = GRPOConfig(
             output_dir=str(self.log_path),
             logging_steps=self.config.train.logging_steps,
-            save_steps=self.config.train.save_steps,  # checkpointing at 250 steps
+            save_steps=self.config.train.save_steps,
             temperature=self.config.train.gen_temperature,
             top_p=self.config.train.top_p,
             top_k=self.config.train.top_k,
@@ -198,7 +235,8 @@ class Agent:
             model=self.config.model.policy,
             reward_funcs=self.reward_func,
             args=trainer_config,
-            train_dataset=dataset.get_dataset(args=self.args, config=self.config, split=self.config.dataset.split_names[0])
+            train_dataset=dataset.get_dataset(
+                args=self.args, config=self.config, split=self.config.dataset.split_names[0])
         )
 
         trainer.train(resume_from_checkpoint=self.checkpoint_path)
@@ -232,6 +270,13 @@ class Agent:
             gt_answer = sample["gt_answer"]
             prompt = sample["prompt"]
 
+            # print('QUESTION')
+            # pprint(question)
+            # print('GT ANSWER')
+            # pprint(gt_answer)
+            # print('OPTIONS')
+            # pprint(options)
+
             inputs = tokenizer(prompt[0]["content"],
                                return_tensors="pt").to("cuda")
 
@@ -241,10 +286,13 @@ class Agent:
                     max_new_tokens=self.config.downstream.max_completion_tokens,
                     temperature=self.config.downstream.gen_temperature,
                     top_p=self.config.downstream.top_p,
-                    do_sample=True
+                    do_sample=False  # Use greedy decoding during evaluation for deterministic results
                 )
             completion = tokenizer.decode(
                 output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
+
+            # print('POLICY MODEL COMPLETIONS')
+            # pprint(completion)
 
             calibrated_prompt = build_downstream_prompt(
                 dataset_name=self.config.dataset.name,
@@ -276,9 +324,21 @@ class Agent:
             baseline_output = self.send_message_downstream(
                 {'role': 'user', 'content': baseline_prompt})
             if self.config.dataset.name == 'medmcqa':
-                baseline_answer, baseline_prob = parse_answer_prob(baseline_output)
+                baseline_answer, baseline_prob = parse_answer_prob(
+                    baseline_output)
             elif self.config.dataset.name == 'pmcvqa':
-                baseline_answer, baseline_prob = parse_answer_prob_vqa(baseline_output)
+                baseline_answer, baseline_prob = parse_answer_prob_vqa(
+                    baseline_output)
+
+            # print('CALIBRATED DOWNSTREAM OUTPUT')
+            # pprint(calibrated_output)
+            # print('CALIBRATED ANSWER')
+            # print(f"{calibrated_answer} (correct answer is {gt_answer})")
+
+            # print('BASELINE DOWNSTREAM OUTPUT')
+            # pprint(baseline_output)
+            # print('BASELINE ANSWER')
+            # print(f"{baseline_answer} (correct answer is {gt_answer})")
 
             baseline_lm_answers.append(baseline_answer)
             baseline_lm_probabilities.append(baseline_prob)
@@ -341,34 +401,56 @@ class Agent:
             eval_dataset["gt_answer"], calibrated_lm_answers)
         calibrated_ece = compute_ece(
             eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
-        calibrated_confidence_avg = np.mean(calibrated_lm_probabilities)
-        calibrated_confidence_std = np.std(calibrated_lm_probabilities)
-        calibrated_entropy_mean = np.nanmean(calibrated_entropies)
+        calibrated_brier = compute_brier_score(
+            eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+        calibrated_confidence_avg=np.mean(calibrated_lm_probabilities)
+        calibrated_confidence_std=np.std(calibrated_lm_probabilities)
 
-        baseline_acc = compute_accuracy(
+        baseline_acc=compute_accuracy(
             eval_dataset["gt_answer"], baseline_lm_answers)
-        baseline_ece = compute_ece(
+        baseline_ece=compute_ece(
             eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
-        baseline_confidence_avg = np.mean(baseline_lm_probabilities)
-        baseline_confidence_std = np.std(baseline_lm_probabilities)
-        baseline_entropy_mean = np.nanmean(baseline_entropies)
+        baseline_brier = compute_brier_score(
+            eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+        baseline_confidence_avg=np.mean(baseline_lm_probabilities)
+        baseline_confidence_std=np.std(baseline_lm_probabilities)
 
         # 5. Log Metrics
-        results = {
-            "calibrated_accuracy": calibrated_acc,
-            "calibrated_ece": calibrated_ece,
-            "calibrated_confidence_avg": calibrated_confidence_avg,
-            "calibrated_confidence_std": calibrated_confidence_std,
-            "calibrated_entropy_mean": calibrated_entropy_mean,
-            "baseline_accuracy": baseline_acc,
-            "baseline_ece": baseline_ece,
-            "baseline_confidence_avg": baseline_confidence_avg,
-            "baseline_confidence_std": baseline_confidence_std,
-            "baseline_entropy_mean": baseline_entropy_mean,
-            "checkpoint": self.checkpoint_path,
-        }
+        if self.args.entropy:
+            calibrated_entropy_mean=np.nanmean(calibrated_entropies)
+            baseline_entropy_mean=np.nanmean(baseline_entropies)
 
-        log_file = os.path.join(self.log_path, "eval_results.json")
+            results={
+                "calibrated_accuracy": calibrated_acc,
+                "calibrated_ece": calibrated_ece,
+                "calibrated_brier": calibrated_brier,
+                "calibrated_confidence_avg": calibrated_confidence_avg,
+                "calibrated_confidence_std": calibrated_confidence_std,
+                "calibrated_entropy_mean": calibrated_entropy_mean,
+                "baseline_accuracy": baseline_acc,
+                "baseline_ece": baseline_ece,
+                "baseline_brier": baseline_brier,
+                "baseline_confidence_avg": baseline_confidence_avg,
+                "baseline_confidence_std": baseline_confidence_std,
+                "baseline_entropy_mean": baseline_entropy_mean,
+                "checkpoint": self.checkpoint_path,
+            }
+        else:
+            results={
+                "calibrated_accuracy": calibrated_acc,
+                "calibrated_ece": calibrated_ece,
+                "calibrated_brier": calibrated_brier,
+                "calibrated_confidence_avg": calibrated_confidence_avg,
+                "calibrated_confidence_std": calibrated_confidence_std,
+                "baseline_accuracy": baseline_acc,
+                "baseline_ece": baseline_ece,
+                "baseline_brier": baseline_brier,
+                "baseline_confidence_avg": baseline_confidence_avg,
+                "baseline_confidence_std": baseline_confidence_std,
+                "checkpoint": self.checkpoint_path,
+            }
+
+        log_file=os.path.join(self.log_path, "eval_results.json")
         os.makedirs(self.log_path, exist_ok=True)
 
         with open(log_file, "w") as f:

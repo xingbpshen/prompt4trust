@@ -9,6 +9,7 @@ import requests
 
 INVALID_RESPONSE_FORMAT_PENALTY = 1e-12
 
+
 def compute_accuracy(gt_answers, lm_answers):
     assert len(gt_answers) == len(lm_answers)
     correct = 0
@@ -65,31 +66,66 @@ def compute_ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
     return ece
 
 
-def init_log_path(log_path, args): #changed to be able to use checkpoints in the given log path
+def compute_brier_score(gt_answers, lm_answers, lm_probabilities):
+    """
+    Brier score: measure of accuracy of confidence predictions
+    :param gt_answers: list of ground truth answers in character format
+    :param lm_answers: list of predicted answers in character format
+    :param lm_probabilities: list of predicted probabilities for the lm_answers
+    :return: brier score
+    """
+    assert len(gt_answers) == len(lm_answers) == len(lm_probabilities)
+
+    gt_answers = np.array(gt_answers)
+    lm_answers = np.array(lm_answers)
+    lm_probabilities = np.array(lm_probabilities)
+
+    # correctness: 1 if predicted == true else 0
+    # convert to lower case if both are strings
+    if all(isinstance(x, str) for x in gt_answers) and all(isinstance(x, str) for x in lm_answers):
+        gt_answers = np.array([x.lower() for x in gt_answers])
+        lm_answers = np.array([x.lower() for x in lm_answers])
+
+    correctness = (lm_answers == gt_answers).astype(float)
+
+    # calculate brier score
+    brier_score = np.mean((lm_probabilities-correctness) ** 2)
+
+    return brier_score
+
+
+# changed to be able to use checkpoints in the given log path
+def init_log_path(log_path, args):
     if os.path.exists(log_path):
         if args.train and not args.resume:
             if not args.ni:
-                response = input(f"Folder {log_path} already exists. Overwrite? (y/n): ").lower()
+                response = input(
+                    f"Folder {log_path} already exists. Overwrite? (y/n): ").lower()
                 if response != "y":
-                    raise ValueError(f"Folder {log_path} already exists. Please remove it or choose a different folder.")
+                    raise ValueError(
+                        f"Folder {log_path} already exists. Please remove it or choose a different folder.")
             os.system(f"rm -r {log_path}")
             os.makedirs(log_path)
         elif args.train and args.resume:
-            print(f"Resuming checkpoints in existing folder {log_path}, not overwriting.")
+            print(
+                f"Resuming checkpoints in existing folder {log_path}, not overwriting.")
         else:
             os.makedirs(log_path, exist_ok=True)
     else:
         os.makedirs(log_path)
 
+
 def parse_answer_prob_vqa(text):
     """Extracts predicted answer letter and confidence score from model output."""
     answer_match = re.search(r"answer is\s+([A-D])", text, re.IGNORECASE)
-    confidence_match = re.search(r"confidence\s+(\d{1,3})", text, re.IGNORECASE)
+    confidence_match = re.search(
+        r"confidence\s+(\d{1,3})", text, re.IGNORECASE)
     if answer_match and confidence_match:
         pred = answer_match.group(1).upper()
         confidence = min(float(confidence_match.group(1)), 100.0) / 100
         return pred, confidence
     return -1, INVALID_RESPONSE_FORMAT_PENALTY
+
 
 def parse_answer_prob(text):
     # match = re.search(get_match_pattern(), text)
@@ -103,11 +139,12 @@ def parse_answer_prob(text):
         except ValueError:
             # Handle edge cases where answer is not reported as an int
             number = str(answer_match.group(1))
-        confidence = float(confidence_match.group(1))/100 # Convert percentage to confidence score
+        # Convert percentage to confidence score
+        confidence = float(confidence_match.group(1))/100
         return number, confidence
     else:
         # return an invalid answer number and confidence nearly 0
-        # INVALID_RESPONSE_FORMAT_PENALTY defines the strength of the penalty 
+        # INVALID_RESPONSE_FORMAT_PENALTY defines the strength of the penalty
         # for responses that don't report confidence in a way that we can parse
         # print('Did not find answer and confidence score')
         return -1, INVALID_RESPONSE_FORMAT_PENALTY
@@ -141,11 +178,14 @@ def wait_until_ready(port, subproc, timeout=500):
         # if the server has exited, raise an error
         if subproc.poll() is not None:
             stderr_output = subproc.stderr.read().decode()
-            raise RuntimeError(f"Error:\n{stderr_output}\nvLLM server at port {port} exited unexpectedly, please kill the corresponding GPU process manually by:\nkill -9 PID")
+            raise RuntimeError(
+                f"Error:\n{stderr_output}\nvLLM server at port {port} exited unexpectedly, please kill the corresponding GPU process manually by:\nkill -9 PID")
         if time.time() - start_time > 30:
-            util.info('engine.__init__.py', 'Still waiting? Check the GPU mem usage to make sure no server is lost.')
+            util.info('engine.__init__.py',
+                      'Still waiting? Check the GPU mem usage to make sure no server is lost.')
         if time.time() - start_time > timeout:
-            raise TimeoutError(f"Server at port {port} did not become ready within {timeout} seconds.")
+            raise TimeoutError(
+                f"Server at port {port} did not become ready within {timeout} seconds.")
         time.sleep(10)
 
 
