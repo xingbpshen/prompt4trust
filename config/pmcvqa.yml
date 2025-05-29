@@ -2,7 +2,7 @@ dataset:
   name: "pmcvqa"
   local_path: "/XXX/PMC-VQA"  # change this to your dataset path
   image_root: "/XXX/PMC-VQA/images/"
-  split_names: ["train_5k", "test_50", "test"]
+  split_names: ["train_5k", "test_1k", "test"]
   max_num_options: 4
 
 resources:
