@@ -45,7 +45,7 @@ class Agent:
         self.downstream_model = OpenAI(api_key=api_key,
                                        base_url=base_url)
 
-    def send_message_downstream(self, message):
+    def send_message_downstream(self, message, seed=None):
         """
         Send a message to the downstream model and get the response.
         :param message: a dict of conversation, e.g. {'role': 'user', 'content': 'How to cook chicken curry?'}
@@ -64,7 +64,7 @@ class Agent:
             max_completion_tokens=self.config.downstream.max_completion_tokens,
             n=1,
             messages=[message], 
-            seed=1
+            seed=seed
         )
         return chat_completion.choices[0].message.content
 
@@ -302,7 +302,7 @@ class Agent:
             )
 
             calibrated_output = self.send_message_downstream(
-                {'role': 'user', 'content': calibrated_prompt})
+                {'role': 'user', 'content': calibrated_prompt}, seed=1)
 
             if self.config.dataset.name == 'medmcqa':
                 calibrated_answer, calibrated_prob = parse_answer_prob(
@@ -322,7 +322,7 @@ class Agent:
             )
 
             baseline_output = self.send_message_downstream(
-                {'role': 'user', 'content': baseline_prompt})
+                {'role': 'user', 'content': baseline_prompt}, seed=1)
             if self.config.dataset.name == 'medmcqa':
                 baseline_answer, baseline_prob = parse_answer_prob(
                     baseline_output)
