@@ -9,14 +9,18 @@ from PIL import Image
 from tqdm import tqdm
 import torch
 import pandas as pd 
-from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration, MllamaForConditionalGeneration, AutoProcessor
 from transformers import set_seed
 
-# %%
 def parse_answer_prob(text):
     """Extracts predicted answer letter and confidence score from model output."""
     answer_match = re.search(r"answer is\s+([A-D])", text, re.IGNORECASE)
+    if not answer_match:
+        answer_match = re.search(r"Answer:\s*([A-D])", text, re.IGNORECASE)
+    # Try format: "**Confidence: 90%**" or "Confidence: 90"
     confidence_match = re.search(r"confidence\s+(\d{1,3})", text, re.IGNORECASE)
+    if not confidence_match:
+        confidence_match = re.search(r"Confidence:\s*(\d{1,3})", text, re.IGNORECASE)
     if answer_match and confidence_match:
         pred = answer_match.group(1).upper()
         confidence = min(float(confidence_match.group(1)), 100.0) / 100
@@ -60,11 +64,16 @@ def build_messages(image, question, choices):
     ]
 
 def evaluate_model_on_samples(model, processor, train_df, img_dir, device="cuda", num_samples=100, seed = 42, temperature=1.0):
-    correct = 0
-    total_conf = 0
-    count = 0
+    # Tracking everything
+    total_attempts = 0
+    total_correct = 0
+
+    # Tracking only valid-format responses
+    valid_count = 0
+    valid_correct = 0
+    valid_conf_sum = 0.0
     
-    set_seed(1)
+    # set_seed(1)
     # random.seed(seed)
     sampled_indices = random.sample(range(len(train_df)), num_samples)
 
@@ -88,7 +97,7 @@ def evaluate_model_on_samples(model, processor, train_df, img_dir, device="cuda"
                 continue  
             messages = build_messages(image, question, choices)
             text_prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
-   
+    
             inputs = processor(
                 text=[text_prompt],
                 images=[image],
@@ -100,61 +109,55 @@ def evaluate_model_on_samples(model, processor, train_df, img_dir, device="cuda"
             output_ids = model.generate(**inputs, max_new_tokens= 256, temperature = 0.1, top_p = .95, do_sample = True)
 
             output_texts = processor.batch_decode(output_ids, skip_special_tokens=True)
-
+        
             pred, conf = parse_answer_prob(output_texts[0])
+            # Overall stats: counts any response
+            total_attempts += 1
+            if pred is not None and pred.upper() == true_letter.upper():
+                total_correct += 1
 
-            if pred and pred.upper() == true_letter.upper():
-                correct += 1
-
-            total_conf += conf
-            count += 1
+            # only count if valid format parsed
+            if pred is not None and conf > 0.0:
+                valid_count += 1
+                valid_conf_sum += conf
+                if pred.upper() == true_letter.upper():
+                    valid_correct += 1
 
         except Exception as e:
             print(f"Error at idx {idx}: {e}")
             continue
 
-    accuracy = correct / count if count > 0 else 0
-    avg_confidence = total_conf / count if count > 0 else 0
-    print(f"\nEvaluated {count} examples.")
-    print(f"Accuracy: {accuracy:.3f}")
-    print(f"Average Confidence: {avg_confidence:.3f}")
+    print(f"\n--- OVERALL ---")
+    print(f"Attempted: {total_attempts}")
+    print(f"Correct (any format): {total_correct} ({100 * total_correct / total_attempts:.2f}%)")
 
-    return accuracy, avg_confidence
+    print(f"\n--- VALID FORMAT ONLY ---")
+    print(f"Valid responses: {valid_count}")
+    print(f"Accuracy (valid only): {100 * valid_correct / valid_count:.2f}%" if valid_count else "No valid responses")
+    print(f"Avg confidence (valid only): {100 * valid_conf_sum / valid_count:.2f}%" if valid_count else "No valid responses")
 
+ 
 
 # %%
 img_dir = '/network/scratch/a/anita.kriz/vccrl-llm/data/PMC-VQA/images' #TODO
-train_csv_path = '/network/scratch/a/anita.kriz/vccrl-llm/data/PMC-VQA/test_50_current.csv' #TODO
+train_csv_path = '/network/scratch/a/anita.kriz/vccrl-llm/data/PMC-VQA/test_50.csv' #TODO
 
 train_df = pd.read_csv(train_csv_path)
 
 # Setup (DO NOT do model.to(device))
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2-VL-2B-Instruct",
-    torch_dtype="auto",
-    device_map="auto"
+
+model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+
+model = MllamaForConditionalGeneration.from_pretrained(
+    model_id,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
 )
-processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-2B-Instruct")
+processor = AutoProcessor.from_pretrained(model_id)
 
 device = torch.device("cuda:0")  #TODO
 
 
 # %%
-accuracy, avg_conf = evaluate_model_on_samples(model = model, processor = processor, train_df = train_df, img_dir = img_dir , num_samples = 50)
+evaluate_model_on_samples(model = model, processor = processor, train_df = train_df, img_dir = img_dir , num_samples = 50)
 
-# results = []
-# for temp in [1.0]:
-#     accuracy, avg_conf = evaluate_model_on_samples(model = model, processor = processor, train_df = train_df, img_dir = img_dir , num_samples = 50, temperature = temp)
-#     results.append({
-#         "temperature": temp,
-#         "accuracy": accuracy,
-#         "avg_confidence": avg_conf
-#     })
-
-# save_path = "/network/scratch/a/anita.kriz/public-llms/results"
-# os.makedirs(save_path, exist_ok=True)  # Create directory if it doesn't exist
-# save_file = os.path.join(save_path, "eval_results.csv")
-
-# df = pd.DataFrame(results)
-# df.to_csv(save_file, index=False)
-# print(f"\nResults saved to: {save_file}")
