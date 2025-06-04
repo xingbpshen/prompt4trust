@@ -4,6 +4,7 @@ from engine import wait_until_ready
 import util
 import subprocess
 import signal
+from csc.csc import run_csc
 
 
 def main():
@@ -24,7 +25,7 @@ def main():
                 dtype = "half"
         else:
             dtype = "half"  # default to half if no GPU is found
-    
+
         # run trl vllm serve
         action_proc = subprocess.Popen(["trl",
                                         "vllm-serve",
@@ -87,7 +88,7 @@ def main():
         env3["XDG_CACHE_HOME"] = config.resources.cache_dir
         try:
             policy_proc = subprocess.Popen(["accelerate", "launch", "engine_launcher.py"] + args_to_forward,
-                                       env=env3, start_new_session=True)
+                                           env=env3, start_new_session=True)
             policy_proc.wait()
         except KeyboardInterrupt:
             # Send SIGINT to the entire process group
@@ -98,10 +99,7 @@ def main():
                 policy_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 os.killpg(os.getpgid(policy_proc.pid), signal.SIGKILL)
-
-    elif args.ctrain:
-        pass
-    elif args.test: # NOTE: I am just using the exact same implementation as training for now... may be better to change otherwise can merge this with above. 
+    elif args.test:  # NOTE: I am just using the exact same implementation as training for now... may be better to change otherwise can merge this with above.
         util.info('main.py', 'Preparing for Evaluation...')
         env1 = os.environ.copy()
         # deploy vLLM for TRL action sampling, use by "python main.py"
@@ -117,7 +115,7 @@ def main():
                 dtype = "half"
         else:
             dtype = "half"  # default to half if no GPU is found
-    
+
         # run trl vllm serve
         action_proc = subprocess.Popen(["trl",
                                         "vllm-serve",
@@ -179,7 +177,7 @@ def main():
         env3["XDG_CACHE_HOME"] = config.resources.cache_dir
         try:
             policy_proc = subprocess.Popen(["accelerate", "launch", "engine_launcher.py"] + args_to_forward,
-                                       env=env3, start_new_session=True)
+                                           env=env3, start_new_session=True)
             policy_proc.wait()
         except KeyboardInterrupt:
             # Send SIGINT to the entire process group
@@ -190,7 +188,11 @@ def main():
                 policy_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 os.killpg(os.getpgid(policy_proc.pid), signal.SIGKILL)
-
+    if args.csc:
+        # run the "cot + self-random + consistency/avg-conf" baseline from an ICLR'24 paper:
+        # https://openreview.net/pdf?id=gjeQKFxFpZ
+        os.environ["XDG_CACHE_HOME"] = config.resources.cache_dir
+        run_csc(args, config)
 
 
 if __name__ == "__main__":
