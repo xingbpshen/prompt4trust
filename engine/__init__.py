@@ -1,11 +1,13 @@
-import numpy as np
 import os
-from prompt import get_match_pattern, get_answer_match_pattern, get_confidence_match_pattern
 import re
-from openai import OpenAI
 import time
-import util
+
+import numpy as np
 import requests
+import util
+from openai import OpenAI
+from prompt import (get_answer_match_pattern, get_confidence_match_pattern,
+                    get_match_pattern)
 
 INVALID_RESPONSE_FORMAT_PENALTY = 1e-12
 
@@ -55,7 +57,8 @@ def compute_ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
         bin_upper = bin_edges[i + 1]
 
         # get indices of predictions in the current bin
-        in_bin = (lm_probabilities > bin_lower) & (lm_probabilities <= bin_upper)
+        in_bin = (lm_probabilities > bin_lower) & (
+            lm_probabilities <= bin_upper)
         prop_in_bin = np.mean(in_bin)
 
         if prop_in_bin > 0:
@@ -199,3 +202,18 @@ def is_supported_closed_source_model(model_name):
         return 'openai', None
     else:
         raise ValueError(f"Closed-source model {model_name} is not supported.")
+
+
+def convert_letter_to_idx(letter: str) -> int:
+    letter = letter.upper()
+    if letter == 'A':
+        return 1
+    elif letter == 'B':
+        return 2
+    elif letter == 'C':
+        return 3
+    elif letter == 'D':
+        return 4
+    else:
+        raise ValueError(
+            f"Invalid letter: {letter}. Expected one of A, B, C, D.")

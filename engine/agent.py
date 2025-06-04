@@ -1,21 +1,25 @@
-from trl import GRPOConfig, GRPOTrainer
-from engine import init_log_path, parse_answer_prob, parse_answer_prob_vqa, is_supported_closed_source_model, INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy, compute_ece, compute_brier_score
-import os
-import dataset
-from prompt import build_downstream_prompt
-import numpy as np
-from openai import OpenAI
-import torch
-from transformers.trainer_utils import get_last_checkpoint
-from pprint import pprint
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, Qwen2VLForConditionalGeneration, set_seed
-from tqdm import tqdm
 import json
+import os
 from pprint import pprint
-import pandas as pd 
 
+import dataset
+import numpy as np
+import pandas as pd
+import torch
+from engine import (INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy,
+                    compute_brier_score, compute_ece, convert_letter_to_idx,
+                    init_log_path, is_supported_closed_source_model,
+                    parse_answer_prob, parse_answer_prob_vqa)
+from openai import OpenAI
+from prompt import build_downstream_prompt
+from tqdm import tqdm
+from transformers import (AutoModelForCausalLM, AutoProcessor, AutoTokenizer,
+                          Qwen2VLForConditionalGeneration, set_seed)
+from transformers.trainer_utils import get_last_checkpoint
+from trl import GRPOConfig, GRPOTrainer
 
 set_seed(1)
+
 
 class Agent:
     def __init__(self, args, config):
@@ -63,7 +67,7 @@ class Agent:
             top_p=self.config.downstream.top_p,
             max_completion_tokens=self.config.downstream.max_completion_tokens,
             n=1,
-            messages=[message], 
+            messages=[message],
             seed=seed
         )
         return chat_completion.choices[0].message.content
@@ -179,7 +183,7 @@ class Agent:
         # pprint(rewards)
 
         # Compute additional metrics for logging purposes
-        # TODO: Update if num_generations or per_device_train_batch_size are 
+        # TODO: Update if num_generations or per_device_train_batch_size are
         # modified such that each batch has more than one question
         batch_log = []
         acc = compute_accuracy(gt_answers, predictions)
@@ -189,7 +193,7 @@ class Agent:
         batch_log.append({
             "accuracy": acc,
             "ece": ece,
-            "brier": brier, 
+            "brier": brier,
             "gt_answers": gt_answers,
             "predictions": predictions,
             "probs": probs,
@@ -199,9 +203,11 @@ class Agent:
         batch_df = pd.DataFrame(batch_log)
         # Open csv file and append the batch log
         if not os.path.exists(os.path.join(self.log_path, "train_log.csv")):
-            batch_df.to_csv(os.path.join(self.log_path, "train_log.csv"), mode='w', header=True, index=False)
+            batch_df.to_csv(os.path.join(
+                self.log_path, "train_log.csv"), mode='w', header=True, index=False)
         else:
-            batch_df.to_csv(os.path.join(self.log_path, "train_log.csv"), mode='a', header=False, index=False)
+            batch_df.to_csv(os.path.join(
+                self.log_path, "train_log.csv"), mode='a', header=False, index=False)
 
         return rewards
 
@@ -270,6 +276,14 @@ class Agent:
             gt_answer = sample["gt_answer"]
             prompt = sample["prompt"]
 
+            if self.config.dataset.name == 'pmcvqa':
+                image_path = sample["image_path"]
+                absolute_image_path = os.path.abspath(image_path)
+                assert absolute_image_path.startswith(
+                    self.config.dataset.image_root)
+                assert os.path.exists(absolute_image_path)
+                image_url = f"file://{absolute_image_path}"
+
             # print('QUESTION')
             # pprint(question)
             # print('GT ANSWER')
@@ -301,15 +315,38 @@ class Agent:
                 hint_text=completion,
             )
 
-            calibrated_output = self.send_message_downstream(
-                {'role': 'user', 'content': calibrated_prompt}, seed=1)
-
             if self.config.dataset.name == 'medmcqa':
+                calibrated_output = self.send_message_downstream(
+                    {'role': 'user', 'content': calibrated_prompt}, seed=1)
                 calibrated_answer, calibrated_prob = parse_answer_prob(
                     calibrated_output)
+
             elif self.config.dataset.name == 'pmcvqa':
+                calibrated_output = self.send_message_downstream(
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url,
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": calibrated_prompt,
+                            }
+                        ]
+                    },
+                    seed=1
+                )
+
                 calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
                     calibrated_output)
+
+            else:
+                raise ValueError(
+                    'Invalid dataset. Only medmcqa and pmcvqa are supported.')
 
             calibrated_lm_answers.append(calibrated_answer)
             calibrated_lm_probabilities.append(calibrated_prob)
@@ -321,14 +358,38 @@ class Agent:
                 hint_text=None,
             )
 
-            baseline_output = self.send_message_downstream(
-                {'role': 'user', 'content': baseline_prompt}, seed=1)
             if self.config.dataset.name == 'medmcqa':
+                baseline_output = self.send_message_downstream(
+                    {'role': 'user', 'content': baseline_prompt}, seed=1)
                 baseline_answer, baseline_prob = parse_answer_prob(
                     baseline_output)
+
             elif self.config.dataset.name == 'pmcvqa':
+                baseline_output = self.send_message_downstream(
+                    {
+                        'role': 'user',
+                        'content': [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url,
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": baseline_prompt,
+                            }
+                        ]
+                    },
+                    seed=1
+                )
+
                 baseline_answer, baseline_prob = parse_answer_prob_vqa(
                     baseline_output)
+
+            else:
+                raise ValueError(
+                    'Invalid dataset. Only medmcqa and pmcvqa are supported.')
 
             # print('CALIBRATED DOWNSTREAM OUTPUT')
             # pprint(calibrated_output)
@@ -354,29 +415,79 @@ class Agent:
                 cal_opt_freq = np.zeros((opt_count))
                 base_opt_freq = np.zeros((opt_count))
                 for mc_sample in tqdm(range(mc_samples)):
-                    calibrated_output = self.send_message_downstream(
-                        {'role': 'user', 'content': calibrated_prompt})
-                    calibrated_answer, calibrated_prob = parse_answer_prob(
-                        calibrated_output)
 
-                    baseline_output = self.send_message_downstream(
-                        {'role': 'user', 'content': baseline_prompt})
-                    baseline_answer, baseline_prob = parse_answer_prob(
-                        baseline_output)
+                    if self.config.dataset.name == 'medmcqa':
+                        calibrated_output = self.send_message_downstream(
+                            {'role': 'user', 'content': calibrated_prompt})
+                        baseline_output = self.send_message_downstream(
+                            {'role': 'user', 'content': baseline_prompt})
+                        calibrated_answer, calibrated_prob = parse_answer_prob(
+                            calibrated_output)
+                        baseline_answer, baseline_prob = parse_answer_prob(
+                            baseline_output)
+
+                    elif self.config.dataset.name == 'pmcvqa':
+                        calibrated_output = self.send_message_downstream(
+                            {
+                                'role': 'user',
+                                'content': [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": image_url,
+                                        }
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": calibrated_prompt,
+                                    }
+                                ]
+                            }
+                        )
+
+                        baseline_output = self.send_message_downstream(
+                            {
+                                'role': 'user',
+                                'content': [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": image_url,
+                                        }
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": baseline_prompt,
+                                    }
+                                ]
+                            }
+                        )
+
+                        baseline_answer, baseline_prob = parse_answer_prob_vqa(
+                            baseline_output)
+                        calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
+                            calibrated_output)
+                        baseline_answer, baseline_prob = parse_answer_prob_vqa(
+                            baseline_output)
+
+                        calibrated_answer = convert_letter_to_idx(
+                            calibrated_answer)
+                        baseline_answer = convert_letter_to_idx(
+                            baseline_answer)
 
                     # Don't count invalid responses (-1 or non-int format)
-                    if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer < opt_count:
+                    if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer-1 < opt_count:
                         # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
                         cal_opt_freq[calibrated_answer-1] += 1
 
                     # Don't count invalid responses (-1 or non-int format)
-                    if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer < opt_count:
+                    if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer-1 < opt_count:
                         # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
                         base_opt_freq[baseline_answer-1] += 1
 
                 # Normalize frequencies based on number of valid answers
-                cal_opt_freq = cal_opt_freq/np.sum(cal_opt_freq)
-                base_opt_freq = base_opt_freq/np.sum(base_opt_freq)
+                cal_opt_freq = cal_opt_freq / np.sum(cal_opt_freq)
+                base_opt_freq = base_opt_freq / np.sum(base_opt_freq)
 
                 calibrated_option_entropy = np.zeros((opt_count))
                 baseline_option_entropy = np.zeros((opt_count))
@@ -388,10 +499,8 @@ class Agent:
                 calibrated_sample_entropy = 1 - ((-1/np.log(opt_count))*np.sum(calibrated_option_entropy))
                 baseline_sample_entropy = 1 - ((-1/np.log(opt_count))*np.sum(baseline_option_entropy))
 
-                print(
-                    f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
-                print(
-                    f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
+                print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
+                print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
 
                 calibrated_entropies.append(calibrated_sample_entropy)
                 baseline_entropies.append(baseline_sample_entropy)
@@ -403,24 +512,24 @@ class Agent:
             eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
         calibrated_brier = compute_brier_score(
             eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
-        calibrated_confidence_avg=np.mean(calibrated_lm_probabilities)
-        calibrated_confidence_std=np.std(calibrated_lm_probabilities)
+        calibrated_confidence_avg = np.mean(calibrated_lm_probabilities)
+        calibrated_confidence_std = np.std(calibrated_lm_probabilities)
 
-        baseline_acc=compute_accuracy(
+        baseline_acc = compute_accuracy(
             eval_dataset["gt_answer"], baseline_lm_answers)
-        baseline_ece=compute_ece(
+        baseline_ece = compute_ece(
             eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
         baseline_brier = compute_brier_score(
             eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
-        baseline_confidence_avg=np.mean(baseline_lm_probabilities)
-        baseline_confidence_std=np.std(baseline_lm_probabilities)
+        baseline_confidence_avg = np.mean(baseline_lm_probabilities)
+        baseline_confidence_std = np.std(baseline_lm_probabilities)
 
         # 5. Log Metrics
         if self.args.entropy:
-            calibrated_entropy_mean=np.nanmean(calibrated_entropies)
-            baseline_entropy_mean=np.nanmean(baseline_entropies)
+            calibrated_entropy_mean = np.nanmean(calibrated_entropies)
+            baseline_entropy_mean = np.nanmean(baseline_entropies)
 
-            results={
+            results = {
                 "calibrated_accuracy": calibrated_acc,
                 "calibrated_ece": calibrated_ece,
                 "calibrated_brier": calibrated_brier,
@@ -436,7 +545,7 @@ class Agent:
                 "checkpoint": self.checkpoint_path,
             }
         else:
-            results={
+            results = {
                 "calibrated_accuracy": calibrated_acc,
                 "calibrated_ece": calibrated_ece,
                 "calibrated_brier": calibrated_brier,
@@ -450,7 +559,7 @@ class Agent:
                 "checkpoint": self.checkpoint_path,
             }
 
-        log_file=os.path.join(self.log_path, "eval_results.json")
+        log_file = os.path.join(self.log_path, "eval_results.json")
         os.makedirs(self.log_path, exist_ok=True)
 
         with open(log_file, "w") as f:
