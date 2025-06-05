@@ -45,7 +45,7 @@ def parse_args_and_config():
     parser.add_argument(
         "--trial_name",
         type=str,
-        required=True,
+        required=False,
         help="A string for documentation purpose. "
              "Will be the name of the folder inside the log folder and the comet trial name.",
     )
@@ -62,12 +62,14 @@ def parse_args_and_config():
                         help='Resume training from latest checkpoint')  # add arguement for resume
     parser.add_argument("--entropy", action="store_true",
                         help='Include sample-based entropy evaluation in testing')
+    parser.add_argument("--csc", action="store_true",
+                        help="Whether to run CSC baseline")
 
     args = parser.parse_args()
     # check arg legitimacy
-    if sum([args.train, args.ctrain, args.test]) != 1:
+    if sum([args.train, args.ctrain, args.test, args.csc]) != 1:
         raise ValueError(
-            "Exactly one of --train, --ctrain, or --test must be specified.")
+            "Exactly one of --train, --ctrain, --test, or --csc must be specified.")
     assert args.ni is True
 
     # parse config file

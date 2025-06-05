@@ -3,6 +3,7 @@ import dataset
 from vllm import LLM, SamplingParams
 from engine import parse_answer_prob_vqa, compute_accuracy, compute_ece, compute_brier_score
 from tqdm import tqdm
+import os
 
 
 def run_csc(args, config):
@@ -16,7 +17,10 @@ def run_csc(args, config):
     )
 
     # model and params for csc
-    llm = LLM(model=config.model.downstream, tensor_parallel_size=4, gpu_memory_utilization=0.8)
+    llm = LLM(model=config.model.downstream,
+              tensor_parallel_size=4,
+              gpu_memory_utilization=0.8,
+              allowed_local_media_path=config.dataset.image_root)
     sampling_params = SamplingParams(temperature=0.5, top_p=0.95, top_k=100, max_tokens=512, n=21)
 
     # eval loop
@@ -25,9 +29,12 @@ def run_csc(args, config):
     avg_conf_rec = []
     for sample in tqdm(eval_dataset):
         question = sample['question']
-        gt_answer = sample['gt_answer']
         options = sample['options']
         img_path = sample['image_path']
+        absolute_image_path = os.path.abspath(img_path)
+        assert absolute_image_path.startswith(config.dataset.image_root)
+        assert os.path.exists(absolute_image_path)
+        image_url = f"file://{absolute_image_path}"
 
         # here the prompt is already CoT
         prompt_csc = build_downstream_prompt(
@@ -41,7 +48,7 @@ def run_csc(args, config):
              'content':
                  [
                      {'type': 'text', 'text': prompt_csc},
-                     {'type': 'image', 'image': img_path}
+                     {'type': 'image_url', 'image_url': {'url': image_url}}
                  ]
              }
         ]
