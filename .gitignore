@@ -18,3 +18,4 @@ run_csc.sh
 *.pyc
 *.pdf
 *__pycache__
+data/*

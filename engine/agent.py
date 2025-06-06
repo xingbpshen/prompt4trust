@@ -297,9 +297,7 @@ class Agent:
             with torch.no_grad():
                 output = model.generate(
                     **inputs,
-                    max_new_tokens=self.config.downstream.max_completion_tokens,
-                    temperature=self.config.downstream.gen_temperature,
-                    top_p=self.config.downstream.top_p,
+                    max_new_tokens=self.config.train.max_completion_length,
                     do_sample=False  # Use greedy decoding during evaluation for deterministic results
                 )
             completion = tokenizer.decode(
