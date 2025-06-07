@@ -64,12 +64,14 @@ def parse_args_and_config():
                         help='Include sample-based entropy evaluation in testing')
     parser.add_argument("--csc", action="store_true",
                         help="Whether to run CSC baseline")
+    parser.add_argument("--test_stable", action="store_true",
+                        help="Whether to test with previous stable version")
 
     args = parser.parse_args()
     # check arg legitimacy
-    if sum([args.train, args.ctrain, args.test, args.csc]) != 1:
+    if sum([args.train, args.ctrain, args.test, args.csc, args.test_stable]) != 1:
         raise ValueError(
-            "Exactly one of --train, --ctrain, --test, or --csc must be specified.")
+            "Exactly one of --train, --ctrain, --test, --test_stable, or --csc must be specified.")
     assert args.ni is True
 
     # parse config file
