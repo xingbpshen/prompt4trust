@@ -5,8 +5,17 @@ test2.py
 test3.py
 config/medmcqa_my.yml
 config/medmcqa_my2.yml
+config/pmcvqa_my.yml
 run_my.sh
 run_my2.sh
+run_csc.sh
+eval_results_test_cleaner_pixtral_fixedpa_2.csv
+log_InternVL3-14B-Instruct/
+log_Pixtral-12B-2409/
+log_Qwen2-VL-2B-Instruct/
+log_Qwen2.5-VL-7B-Instruct/
+plot_curve.ipynb
+run_my_long.sh
 
 *.zip
 *.idea
@@ -16,3 +25,4 @@ run_my2.sh
 *.pyc
 *.pdf
 *__pycache__
+data/*
