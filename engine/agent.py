@@ -269,7 +269,7 @@ class Agent:
             args=self.args,
             config=self.config,
             # TODO change this hard coding
-            split=self.config.dataset.split_names[1]
+            split=self.config.dataset.split_names[2]
         )
         # 3. Loop through examples and generate completions, then send to downstream model
         calibrated_lm_answers = []
@@ -562,6 +562,7 @@ class Agent:
                 "checkpoint": self.checkpoint_path,
             }
 
+        ###############################################################
         log_file = os.path.join(self.log_path, "eval_results.json")
         os.makedirs(self.log_path, exist_ok=True)
 
@@ -569,6 +570,18 @@ class Agent:
             json.dump(results, f, indent=4)
 
         print(f"Metric Results saved to {log_file}")
+
+        # Save outputs
+        scores_log_file = os.path.join(self.log_path, "TODO_SET_NAME_OF_FILE_HERE.csv")
+        logs_df = pd.DataFrame({
+            'GT_Answers': eval_dataset["gt_answer"],
+            'Calibrated_Answers': calibrated_lm_answers,
+            'Calibratated_Confidence': calibrated_lm_probabilities,
+            'Baseline_Answers': baseline_lm_answers,
+            'Baseline_Confidence': baseline_lm_probabilities
+        })
+        logs_df.to_csv(scores_log_file)
+        ###############################################################
 
     def eval_stable(self):
 
@@ -584,7 +597,7 @@ class Agent:
             args=self.args,
             config=self.config,
             # TODO change this hard coding
-            split=self.config.dataset.split_names[1]
+            split=self.config.dataset.split_names[2]
         )
         # 3. Loop through examples and generate completions, then send to downstream model
         calibrated_lm_answers = []

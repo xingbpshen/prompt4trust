@@ -56,9 +56,11 @@ def compute_ece(gt_answers, lm_answers, lm_probabilities, n_bins=10):
         bin_lower = bin_edges[i]
         bin_upper = bin_edges[i + 1]
 
-        # get indices of predictions in the current bin
-        in_bin = (lm_probabilities > bin_lower) & (
-            lm_probabilities <= bin_upper)
+        if bin_lower == 0.0:  # EDGE CASE for 0 prob
+            in_bin = (lm_probabilities >= bin_lower) & (lm_probabilities <= bin_upper)
+        else:
+            in_bin = (lm_probabilities > bin_lower) & (lm_probabilities <= bin_upper)
+
         prop_in_bin = np.mean(in_bin)
 
         if prop_in_bin > 0:
