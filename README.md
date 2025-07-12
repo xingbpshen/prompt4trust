@@ -83,5 +83,5 @@ python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TR
 ```
 Please raise a GitHub issue or email us at <a href="mailto:xing.shen@mail.mcgill.com">xing.shen@mail.mcgill.com</a> if you encounter any issue.
 
-## 4. Acknowledgements
+## Acknowledgements
 This work was supported in part by the Natural Sciences and Engineering Research Council of Canada, in part by the Canadian Institute for Advanced Research (CIFAR) Artificial Intelligence Chairs Program, in part by the Mila—Quebec Artificial Intelligence Institute, in part by the Mila—Google Research Grant, in part by Fonds de recherche du Québec, and in part by the Canada First Research Excellence Fund, awarded to the Healthy Brains, Healthy Lives initiative at McGill University.
