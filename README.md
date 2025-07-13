@@ -45,7 +45,7 @@ Create a `data/` folder under the project root `vccrl-llm/`:
 mkdir data/
 ```
 Download the dataset from the PMC-VQA repository [here](https://huggingface.co/datasets/RadGenome/PMC-VQA). Put all files in the newly created `data/` folder.
-Our training split can be found here (coming soon).
+Our training split can be generated using `dataset/gen_train.py` (with modification to data path) or can be downloaded here (coming soon).
 
 ### 1.3 Modifying config
 The config files are located at `config/`. You can modify the parameters according to your needs. The default config file `pmcvqa.yml` is for the PMC-VQA dataset.
