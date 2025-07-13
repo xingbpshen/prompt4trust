@@ -3,9 +3,9 @@ import random
 import os
 from PIL import Image
 
-input_path = "/cim/data/PMC-VQA/train.csv"
-output_path = "/cim/data/PMC-VQA/train_5k.csv"
-image_root = "/cim/data/PMC-VQA/images"
+input_path = "./data/PMC-VQA/train.csv"
+output_path = "./data/PMC-VQA/train_5k.csv"
+image_root = "./data/PMC-VQA/images"
 
 SEED = 42
 random.seed(SEED)
