@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 from pprint import pprint
@@ -6,10 +7,6 @@ import dataset
 import numpy as np
 import pandas as pd
 import torch
-from engine import (INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy,
-                    compute_brier_score, compute_ece, convert_letter_to_idx,
-                    init_log_path, is_supported_closed_source_model,
-                    parse_answer_prob, parse_answer_prob_vqa)
 from openai import OpenAI
 from prompt import build_downstream_prompt
 from tqdm import tqdm
@@ -18,7 +15,25 @@ from transformers import (AutoModelForCausalLM, AutoProcessor, AutoTokenizer,
 from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOConfig, GRPOTrainer
 
+from engine import (INVALID_RESPONSE_FORMAT_PENALTY, compute_accuracy,
+                    compute_brier_score, compute_ece, convert_letter_to_idx,
+                    init_log_path, is_supported_closed_source_model,
+                    parse_answer_prob, parse_answer_prob_vqa)
+
 set_seed(1)
+
+
+def filter_valid_samples(gt_answers, lm_answers, lm_probabilities):
+    """
+    Returns a boolean mask for valid samples:
+    - answer not -1 
+    - confidence not 1e-12
+    """
+    valid_mask = []
+    for gt, lm, conf in zip(gt_answers, lm_answers, lm_probabilities):
+        is_valid_answer = (lm != -1) and (conf != 1e-12)
+        valid_mask.append(is_valid_answer)
+    return np.array(valid_mask)
 
 
 class Agent:
@@ -47,7 +62,9 @@ class Agent:
             base_url = f'http://localhost:{config.resources.downstream_port}/v1'
 
         self.downstream_model = OpenAI(api_key=api_key,
-                                       base_url=base_url)
+                                       base_url=base_url,
+                                       timeout=30.0, 
+                                       max_retries=0)
 
     def send_message_downstream(self, message, seed=None):
         """
@@ -61,16 +78,21 @@ class Agent:
         else:
             models = self.downstream_model.models.list()
             model = models.data[0].id
-        chat_completion = self.downstream_model.chat.completions.create(
-            model=model,
-            temperature=self.config.downstream.gen_temperature,
-            top_p=self.config.downstream.top_p,
-            max_completion_tokens=self.config.downstream.max_completion_tokens,
-            n=1,
-            messages=[message],
-            seed=seed
-        )
-        return chat_completion.choices[0].message.content
+        try:
+            chat_completion = self.downstream_model.chat.completions.create(
+                model=model,
+                temperature=self.config.downstream.gen_temperature,
+                top_p=self.config.downstream.top_p,
+                max_completion_tokens=self.config.downstream.max_completion_tokens,
+                n=1,
+                messages=[message],
+                seed=seed
+            )
+            return chat_completion.choices[0].message.content
+
+        except Exception as e:
+            print("Error:", e)
+            return "Invalid response"
 
     # for using in eval
     # for greedy, temperature=0.0, top_p=1.0
@@ -100,15 +122,6 @@ class Agent:
         gt_answers = kwargs.get('gt_answer', None)
         option_lists = kwargs.get('options', None)
         image_paths = kwargs.get('image_path', None)
-
-        # print('QUESTIONS')
-        # pprint(questions)
-        # print('GT ANSWERS')
-        # pprint(gt_answers)
-        # print('OPTIONS')
-        # pprint(option_lists)
-        # print('POLICY MODEL COMPLETIONS')
-        # pprint(completions)
 
         assert questions is not None and gt_answers is not None and option_lists is not None and image_paths is not None
         # the completions are used for another LLM as prompt
@@ -161,11 +174,6 @@ class Agent:
             if self.config.dataset.name == 'pmcvqa':
                 answer, prob = parse_answer_prob_vqa(text)
 
-                # print('DOWNSTREAM OUTPUT')
-                # pprint(output)
-                # print('ANSWER')
-                # print(f"{answer} (correct answer is {gt_answer})")
-
             elif self.config.dataset.name == 'medmcqa':
                 answer, prob = parse_answer_prob(text)
 
@@ -178,25 +186,14 @@ class Agent:
                 # such that the reported confidence could not be parsed
                 rewards.append(np.log(prob))
 
-                # print('REWARD (INVALID RESPONSE)')
-                # print(prob, np.log(prob))
-
             elif answer == gt_answer:
                 # clip prob to avoid log(0)
                 prob = min(1, max(prob, 1e-10))
                 rewards.append(np.log(prob))
 
-                # print('REWARD (CORRECT RESPONSE)')
-                # print(prob, np.log(prob))
-
             else:
                 tmp = min(1, max(1 - prob, 1e-10))
                 rewards.append(np.log(tmp)-1)
-
-        #         print('REWARD (INCORRECT RESPONSE)')
-        #         print(tmp, np.log(tmp)-1)
-        # print('REWARDS')
-        # pprint(rewards)
 
         # Compute additional metrics for logging purposes
         # TODO: Update if num_generations or per_device_train_batch_size are
@@ -271,163 +268,83 @@ class Agent:
             # TODO change this hard coding
             split=self.config.dataset.split_names[2]
         )
-        # 3. Loop through examples and generate completions, then send to downstream model
-        calibrated_lm_answers = []
-        calibrated_lm_probabilities = []
-        calibrated_entropies = []
-        baseline_lm_answers = []
-        baseline_lm_probabilities = []
-        baseline_entropies = []
-        for sample in tqdm(eval_dataset):
-            question = sample["question"]
-            options = sample["options"]
-            gt_answer = sample["gt_answer"]
-            conversation = sample["prompt"] # already in the form of dict
+        # Create a CSV to hold data at each iteration and track samples that have already been evaluated
+        completed_indices = set()
+        os.makedirs(self.log_path, exist_ok=True)
+        csv_path = os.path.join(self.log_path, "results_log.csv")
+        log_file = os.path.join(self.log_path, "results.json")
 
-            if self.config.dataset.name == 'pmcvqa':
-                image_path = sample["image_path"]
-                absolute_image_path = os.path.abspath(image_path)
-                assert absolute_image_path.startswith(
-                    self.config.dataset.image_root)
-                assert os.path.exists(absolute_image_path)
-                image_url = f"file://{absolute_image_path}"
+        if os.path.exists(csv_path) and os.stat(csv_path).st_size > 0:
+            print(f"Reading existing CSV at: {csv_path}")
+            with open(csv_path, "r") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        completed_indices.add(int(row["index"]))
+                    except ValueError:
+                        continue  # skip bad rows
 
-            # print('QUESTION')
-            # pprint(question)
-            # print('GT ANSWER')
-            # pprint(gt_answer)
-            # print('OPTIONS')
-            # pprint(options)
+        print(f"Resuming from {len(completed_indices)} completed entries")
 
-            # use greedy search here
-            completion = self.send_message_openai_obj(openai_obj=policy_openai_obj,
-                                                      message=conversation[0],
-                                                      temperature=0.0,
-                                                      top_p=1.0,
-                                                      max_completion_tokens=self.config.train.max_completion_length,
-                                                      n=1,
-                                                      seed=1)
+        fieldnames = [
+            "index", "image_path", "question", "gt_answer",
+            "calibrated_answer", "calibrated_prob", "calibrated_output",
+            "baseline_answer", "baseline_prob", "baseline_output"
+        ]
 
-            # print('POLICY MODEL COMPLETIONS')
-            # pprint(completion)
+        # Use `with` to guarantee flush and close even if crash occurs
+        with open(csv_path, "a", newline="") as csv_file:
+            csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
 
-            calibrated_prompt = build_downstream_prompt(
-                dataset_name=self.config.dataset.name,
-                question_text=question,
-                option_list=options,
-                hint_text=completion,
-            )
+            # Write header only if empty file
+            if os.stat(csv_path).st_size == 0:
+                csv_writer.writeheader()
+            # 3. Loop through examples and generate completions, then send to downstream model
+            calibrated_lm_answers = []
+            calibrated_lm_probabilities = []
+            calibrated_entropies = []
+            baseline_lm_answers = []
+            baseline_lm_probabilities = []
+            baseline_entropies = []
+            for i, sample in enumerate(tqdm(eval_dataset)):
+                if i in completed_indices:
+                    continue
 
-            if self.config.dataset.name == 'medmcqa':
-                calibrated_output = self.send_message_downstream(
-                    {'role': 'user', 'content': calibrated_prompt}, seed=1)
-                calibrated_answer, calibrated_prob = parse_answer_prob(
-                    calibrated_output)
+                try:
+                    question = sample["question"]
+                    options = sample["options"]
+                    gt_answer = sample["gt_answer"]
+                    conversation = sample["prompt"]
 
-            elif self.config.dataset.name == 'pmcvqa':
-                calibrated_output = self.send_message_downstream(
-                    {
-                        'role': 'user',
-                        'content': [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": image_url,
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": calibrated_prompt,
-                            }
-                        ]
-                    },
-                    seed=1
-                )
+                    if self.config.dataset.name == 'pmcvqa':
+                        image_path = sample["image_path"]
+                        absolute_image_path = os.path.abspath(image_path)
+                        assert absolute_image_path.startswith(
+                            self.config.dataset.image_root)
+                        assert os.path.exists(absolute_image_path)
+                        image_url = f"file://{absolute_image_path}"
 
-                calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
-                    calibrated_output)
+                    # use greedy search here
+                    completion = self.send_message_openai_obj(openai_obj=policy_openai_obj,
+                                                              message=conversation[0],
+                                                              temperature=0.0,
+                                                              top_p=1.0,
+                                                              max_completion_tokens=self.config.train.max_completion_length,
+                                                              n=1,
+                                                              seed=1)
 
-            else:
-                raise ValueError(
-                    'Invalid dataset. Only medmcqa and pmcvqa are supported.')
-
-            calibrated_lm_answers.append(calibrated_answer)
-            calibrated_lm_probabilities.append(calibrated_prob)
-
-            baseline_prompt = build_downstream_prompt(
-                dataset_name=self.config.dataset.name,
-                question_text=question,
-                option_list=options,
-                hint_text=None,
-            )
-
-            if self.config.dataset.name == 'medmcqa':
-                baseline_output = self.send_message_downstream(
-                    {'role': 'user', 'content': baseline_prompt}, seed=1)
-                baseline_answer, baseline_prob = parse_answer_prob(
-                    baseline_output)
-
-            elif self.config.dataset.name == 'pmcvqa':
-                baseline_output = self.send_message_downstream(
-                    {
-                        'role': 'user',
-                        'content': [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": image_url,
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": baseline_prompt,
-                            }
-                        ]
-                    },
-                    seed=1
-                )
-
-                baseline_answer, baseline_prob = parse_answer_prob_vqa(
-                    baseline_output)
-
-            else:
-                raise ValueError(
-                    'Invalid dataset. Only medmcqa and pmcvqa are supported.')
-
-            # print('CALIBRATED DOWNSTREAM OUTPUT')
-            # pprint(calibrated_output)
-            # print('CALIBRATED ANSWER')
-            # print(f"{calibrated_answer} (correct answer is {gt_answer})")
-
-            # print('BASELINE DOWNSTREAM OUTPUT')
-            # pprint(baseline_output)
-            # print('BASELINE ANSWER')
-            # print(f"{baseline_answer} (correct answer is {gt_answer})")
-
-            baseline_lm_answers.append(baseline_answer)
-            baseline_lm_probabilities.append(baseline_prob)
-
-            if self.args.entropy:
-                # Implement uncertainty quantification, referencing: [1] Q.
-                # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
-                # Use default of 40 MC samples (consistent with Lyu)
-                mc_samples = 40
-
-                opt_count = len(options)
-
-                cal_opt_freq = np.zeros((opt_count))
-                base_opt_freq = np.zeros((opt_count))
-                for mc_sample in tqdm(range(mc_samples)):
+                    calibrated_prompt = build_downstream_prompt(
+                        dataset_name=self.config.dataset.name,
+                        question_text=question,
+                        option_list=options,
+                        hint_text=completion,
+                    )
 
                     if self.config.dataset.name == 'medmcqa':
                         calibrated_output = self.send_message_downstream(
-                            {'role': 'user', 'content': calibrated_prompt})
-                        baseline_output = self.send_message_downstream(
-                            {'role': 'user', 'content': baseline_prompt})
+                            {'role': 'user', 'content': calibrated_prompt}, seed=1)
                         calibrated_answer, calibrated_prob = parse_answer_prob(
                             calibrated_output)
-                        baseline_answer, baseline_prob = parse_answer_prob(
-                            baseline_output)
 
                     elif self.config.dataset.name == 'pmcvqa':
                         calibrated_output = self.send_message_downstream(
@@ -445,9 +362,34 @@ class Agent:
                                         "text": calibrated_prompt,
                                     }
                                 ]
-                            }
+                            },
+                            seed=1
                         )
 
+                        calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
+                            calibrated_output)
+
+                    else:
+                        raise ValueError(
+                            'Invalid dataset. Only medmcqa and pmcvqa are supported.')
+
+                    calibrated_lm_answers.append(calibrated_answer)
+                    calibrated_lm_probabilities.append(calibrated_prob)
+
+                    baseline_prompt = build_downstream_prompt(
+                        dataset_name=self.config.dataset.name,
+                        question_text=question,
+                        option_list=options,
+                        hint_text=None,
+                    )
+
+                    if self.config.dataset.name == 'medmcqa':
+                        baseline_output = self.send_message_downstream(
+                            {'role': 'user', 'content': baseline_prompt}, seed=1)
+                        baseline_answer, baseline_prob = parse_answer_prob(
+                            baseline_output)
+
+                    elif self.config.dataset.name == 'pmcvqa':
                         baseline_output = self.send_message_downstream(
                             {
                                 'role': 'user',
@@ -463,69 +405,229 @@ class Agent:
                                         "text": baseline_prompt,
                                     }
                                 ]
-                            }
+                            },
+                            seed=1
                         )
 
                         baseline_answer, baseline_prob = parse_answer_prob_vqa(
                             baseline_output)
-                        calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
-                            calibrated_output)
-                        baseline_answer, baseline_prob = parse_answer_prob_vqa(
-                            baseline_output)
+                        
 
-                        calibrated_answer = convert_letter_to_idx(
-                            calibrated_answer)
-                        baseline_answer = convert_letter_to_idx(
-                            baseline_answer)
+                    else:
+                        raise ValueError(
+                            'Invalid dataset. Only medmcqa and pmcvqa are supported.')
 
-                    # Don't count invalid responses (-1 or non-int format)
-                    if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer - 1 < opt_count:
-                        # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
-                        cal_opt_freq[calibrated_answer - 1] += 1
 
-                    # Don't count invalid responses (-1 or non-int format)
-                    if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer - 1 < opt_count:
-                        # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
-                        base_opt_freq[baseline_answer - 1] += 1
+                    baseline_lm_answers.append(baseline_answer)
+                    baseline_lm_probabilities.append(baseline_prob)
 
-                # Normalize frequencies based on number of valid answers
-                cal_opt_freq = cal_opt_freq / np.sum(cal_opt_freq)
-                base_opt_freq = base_opt_freq / np.sum(base_opt_freq)
+                    # Write to CSV
+                    csv_writer.writerow({
+                        "index": i,
+                        "image_path": image_path,
+                        "question": question,
+                        "gt_answer": gt_answer,
+                        "calibrated_answer": calibrated_answer,
+                        "calibrated_prob": calibrated_prob,
+                        "calibrated_output": calibrated_output,
+                        "baseline_answer": baseline_answer,
+                        "baseline_prob": baseline_prob,
+                        "baseline_output": baseline_output
+                    })
 
-                calibrated_option_entropy = np.zeros((opt_count))
-                baseline_option_entropy = np.zeros((opt_count))
-                for opt in range(opt_count):
-                    calibrated_option_entropy[opt] = cal_opt_freq[opt] * np.log(
-                        cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
-                    baseline_option_entropy[opt] = base_opt_freq[opt] * np.log(
-                        base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
-                calibrated_sample_entropy = 1 - ((-1 / np.log(opt_count)) * np.sum(calibrated_option_entropy))
-                baseline_sample_entropy = 1 - ((-1 / np.log(opt_count)) * np.sum(baseline_option_entropy))
+                    # Ensure data is written to disk
+                    csv_file.flush()
+                    os.fsync(csv_file.fileno())
 
-                print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
-                print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
+                except Exception as e:
+                    print(f"Error on index {i}: {e}")
+                    continue
 
-                calibrated_entropies.append(calibrated_sample_entropy)
-                baseline_entropies.append(baseline_sample_entropy)
+                if self.args.entropy:
+                    # Implement uncertainty quantification, referencing: [1] Q.
+                    # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
+                    # Use default of 40 MC samples (consistent with Lyu)
+
+                    # TODO: update to handle saving to CSV in case eval needs to be stopped and resumed
+
+                    mc_samples = 40 # TODO: Make this configurable
+
+                    opt_count = len(options)
+
+                    cal_opt_freq = np.zeros((opt_count))
+                    base_opt_freq = np.zeros((opt_count))
+                    for mc_sample in tqdm(range(mc_samples)):
+
+                        if self.config.dataset.name == 'medmcqa':
+                            calibrated_output = self.send_message_downstream(
+                                {'role': 'user', 'content': calibrated_prompt})
+                            baseline_output = self.send_message_downstream(
+                                {'role': 'user', 'content': baseline_prompt})
+                            calibrated_answer, calibrated_prob = parse_answer_prob(
+                                calibrated_output)
+                            baseline_answer, baseline_prob = parse_answer_prob(
+                                baseline_output)
+
+                        elif self.config.dataset.name == 'pmcvqa':
+                            calibrated_output = self.send_message_downstream(
+                                {
+                                    'role': 'user',
+                                    'content': [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": image_url,
+                                            }
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": calibrated_prompt,
+                                        }
+                                    ]
+                                }
+                            )
+
+                            baseline_output = self.send_message_downstream(
+                                {
+                                    'role': 'user',
+                                    'content': [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": image_url,
+                                            }
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": baseline_prompt,
+                                        }
+                                    ]
+                                }
+                            )
+
+                            baseline_answer, baseline_prob = parse_answer_prob_vqa(
+                                baseline_output)
+                            calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
+                                calibrated_output)
+                            baseline_answer, baseline_prob = parse_answer_prob_vqa(
+                                baseline_output)
+
+                            calibrated_answer = convert_letter_to_idx(
+                                calibrated_answer)
+                            baseline_answer = convert_letter_to_idx(
+                                baseline_answer)
+
+                        # Don't count invalid responses (-1 or non-int format)
+                        if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer - 1 < opt_count:
+                            # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                            cal_opt_freq[calibrated_answer - 1] += 1
+
+                        # Don't count invalid responses (-1 or non-int format)
+                        if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer - 1 < opt_count:
+                            # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                            base_opt_freq[baseline_answer - 1] += 1
+
+                    # Normalize frequencies based on number of valid answers
+                    cal_opt_freq = cal_opt_freq / np.sum(cal_opt_freq)
+                    base_opt_freq = base_opt_freq / np.sum(base_opt_freq)
+
+                    calibrated_option_entropy = np.zeros((opt_count))
+                    baseline_option_entropy = np.zeros((opt_count))
+                    for opt in range(opt_count):
+                        calibrated_option_entropy[opt] = cal_opt_freq[opt] * np.log(
+                            cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
+                        baseline_option_entropy[opt] = base_opt_freq[opt] * np.log(
+                            base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
+                    calibrated_sample_entropy = 1 - ((-1 / np.log(opt_count)) *
+                         np.sum(calibrated_option_entropy))
+                    baseline_sample_entropy = 1 - ((-1 / np.log(opt_count)) * np.sum(baseline_option_entropy))
+
+                    print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
+                    print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
+
+                    calibrated_entropies.append(calibrated_sample_entropy)
+                    baseline_entropies.append(baseline_sample_entropy)
+
+        csv_file.close()
+        logs_df = pd.read_csv(csv_path)
 
         # 4. Calcute metrics
+        gt_answers = logs_df["gt_answer"]
+        gt_answers = logs_df['gt_answer']
+        calibrated_lm_answers = logs_df['calibrated_answer']
+        calibrated_lm_probabilities = logs_df['calibrated_prob']
+        baseline_lm_answers = logs_df['baseline_answer']
+        baseline_lm_probabilities = logs_df['baseline_prob']
+        
         calibrated_acc = compute_accuracy(
-            eval_dataset["gt_answer"], calibrated_lm_answers)
+            gt_answers, calibrated_lm_answers)
         calibrated_ece = compute_ece(
-            eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+            gt_answers, calibrated_lm_answers, calibrated_lm_probabilities)
         calibrated_brier = compute_brier_score(
-            eval_dataset["gt_answer"], calibrated_lm_answers, calibrated_lm_probabilities)
+            gt_answers, calibrated_lm_answers, calibrated_lm_probabilities)
         calibrated_confidence_avg = np.mean(calibrated_lm_probabilities)
         calibrated_confidence_std = np.std(calibrated_lm_probabilities)
 
         baseline_acc = compute_accuracy(
-            eval_dataset["gt_answer"], baseline_lm_answers)
+            gt_answers, baseline_lm_answers)
         baseline_ece = compute_ece(
-            eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+            gt_answers, baseline_lm_answers, baseline_lm_probabilities)
         baseline_brier = compute_brier_score(
-            eval_dataset["gt_answer"], baseline_lm_answers, baseline_lm_probabilities)
+            gt_answers, baseline_lm_answers, baseline_lm_probabilities)
         baseline_confidence_avg = np.mean(baseline_lm_probabilities)
         baseline_confidence_std = np.std(baseline_lm_probabilities)
+
+        # filter for valid samples only (i.e answer != -1 and conf != 1e-12)
+        valid_mask_calibrated = filter_valid_samples(
+            gt_answers, calibrated_lm_answers, calibrated_lm_probabilities)
+        valid_calibrated_count = np.sum(valid_mask_calibrated)
+
+        valid_mask_baseline = filter_valid_samples(
+            gt_answers, baseline_lm_answers, baseline_lm_probabilities)
+        valid_baseline_count = np.sum(valid_mask_baseline)
+
+        # valid samples only metrics
+        calibrated_acc_valid = compute_accuracy(
+            np.array(gt_answers)[valid_mask_calibrated],
+            np.array(calibrated_lm_answers)[valid_mask_calibrated]
+        )
+        calibrated_ece_valid = compute_ece(
+            np.array(gt_answers)[valid_mask_calibrated],
+            np.array(calibrated_lm_answers)[valid_mask_calibrated],
+            np.array(calibrated_lm_probabilities)[valid_mask_calibrated]
+        )
+        calibrated_brier_valid = compute_brier_score(
+            np.array(gt_answers)[valid_mask_calibrated],
+            np.array(calibrated_lm_answers)[valid_mask_calibrated],
+            np.array(calibrated_lm_probabilities)[valid_mask_calibrated]
+        )
+        calibrated_confidence_avg_valid = np.mean(
+            np.array(calibrated_lm_probabilities)[valid_mask_calibrated]
+        )
+        calibrated_confidence_std_valid = np.std(
+            np.array(calibrated_lm_probabilities)[valid_mask_calibrated]
+        )
+
+        baseline_acc_valid = compute_accuracy(
+            np.array(gt_answers)[valid_mask_baseline],
+            np.array(baseline_lm_answers)[valid_mask_baseline]
+        )
+        baseline_ece_valid = compute_ece(
+            np.array(gt_answers)[valid_mask_baseline],
+            np.array(baseline_lm_answers)[valid_mask_baseline],
+            np.array(baseline_lm_probabilities)[valid_mask_baseline]
+        )
+        baseline_brier_valid = compute_brier_score(
+            np.array(gt_answers)[valid_mask_baseline],
+            np.array(baseline_lm_answers)[valid_mask_baseline],
+            np.array(baseline_lm_probabilities)[valid_mask_baseline]
+        )
+        baseline_confidence_avg_valid = np.mean(
+            np.array(baseline_lm_probabilities)[valid_mask_baseline]
+        )
+        baseline_confidence_std_valid = np.std(
+            np.array(baseline_lm_probabilities)[valid_mask_baseline]
+        )
 
         # 5. Log Metrics
         if self.args.entropy:
@@ -539,12 +641,28 @@ class Agent:
                 "calibrated_confidence_avg": calibrated_confidence_avg,
                 "calibrated_confidence_std": calibrated_confidence_std,
                 "calibrated_entropy_mean": calibrated_entropy_mean,
+
                 "baseline_accuracy": baseline_acc,
                 "baseline_ece": baseline_ece,
                 "baseline_brier": baseline_brier,
                 "baseline_confidence_avg": baseline_confidence_avg,
                 "baseline_confidence_std": baseline_confidence_std,
                 "baseline_entropy_mean": baseline_entropy_mean,
+
+                "calibrated_valid_count": valid_calibrated_count,
+                "calibrated_accuracy_valid": calibrated_acc_valid,
+                "calibrated_ece_valid": calibrated_ece_valid,
+                "calibrated_brier_valid": calibrated_brier_valid,
+                "calibrated_confidence_avg_valid": calibrated_confidence_avg_valid,
+                "calibrated_confidence_std_valid": calibrated_confidence_std_valid,
+
+                "baseline_valid_count": valid_baseline_count,
+                "baseline_accuracy_valid": baseline_acc_valid,
+                "baseline_ece_valid": baseline_ece_valid,
+                "baseline_brier_valid": baseline_brier_valid,
+                "baseline_confidence_avg_valid": baseline_confidence_avg_valid,
+                "baseline_confidence_std_valid": baseline_confidence_std_valid,
+
                 "checkpoint": self.checkpoint_path,
             }
         else:
@@ -554,35 +672,34 @@ class Agent:
                 "calibrated_brier": calibrated_brier,
                 "calibrated_confidence_avg": calibrated_confidence_avg,
                 "calibrated_confidence_std": calibrated_confidence_std,
+
                 "baseline_accuracy": baseline_acc,
                 "baseline_ece": baseline_ece,
                 "baseline_brier": baseline_brier,
                 "baseline_confidence_avg": baseline_confidence_avg,
                 "baseline_confidence_std": baseline_confidence_std,
+
+                "calibrated_valid_count": valid_calibrated_count,
+                "calibrated_accuracy_valid": calibrated_acc_valid,
+                "calibrated_ece_valid": calibrated_ece_valid,
+                "calibrated_brier_valid": calibrated_brier_valid,
+                "calibrated_confidence_avg_valid": calibrated_confidence_avg_valid,
+                "calibrated_confidence_std_valid": calibrated_confidence_std_valid,
+
+                "baseline_valid_count": valid_baseline_count,
+                "baseline_accuracy_valid": baseline_acc_valid,
+                "baseline_ece_valid": baseline_ece_valid,
+                "baseline_brier_valid": baseline_brier_valid,
+                "baseline_confidence_avg_valid": baseline_confidence_avg_valid,
+                "baseline_confidence_std_valid": baseline_confidence_std_valid,
+
                 "checkpoint": self.checkpoint_path,
             }
 
-        ###############################################################
-        log_file = os.path.join(self.log_path, "eval_results.json")
-        os.makedirs(self.log_path, exist_ok=True)
+            with open(log_file, "w") as f:
+                json.dump(results, f, indent=4)
 
-        with open(log_file, "w") as f:
-            json.dump(results, f, indent=4)
-
-        print(f"Metric Results saved to {log_file}")
-
-        # Save outputs
-        scores_log_file = os.path.join(self.log_path, "TODO_SET_NAME_OF_FILE_HERE.csv")
-        logs_df = pd.DataFrame({
-            'GT_Answers': eval_dataset["gt_answer"],
-            'Calibrated_Answers': calibrated_lm_answers,
-            'Calibratated_Confidence': calibrated_lm_probabilities,
-            'Baseline_Answers': baseline_lm_answers,
-            'Baseline_Confidence': baseline_lm_probabilities
-        })
-        logs_df.to_csv(scores_log_file)
-        ###############################################################
-
+            print(f"Metric Results saved to {log_file}")
     def eval_stable(self):
 
         # 1. Load model and tokenizer from checkpoint
@@ -620,13 +737,6 @@ class Agent:
                 assert os.path.exists(absolute_image_path)
                 image_url = f"file://{absolute_image_path}"
 
-            # print('QUESTION')
-            # pprint(question)
-            # print('GT ANSWER')
-            # pprint(gt_answer)
-            # print('OPTIONS')
-            # pprint(options)
-
             inputs = tokenizer(prompt[0]["content"],
                                return_tensors="pt").to("cuda")
 
@@ -638,10 +748,6 @@ class Agent:
                 )
             completion = tokenizer.decode(
                 output[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
-
-            # print('POLICY MODEL COMPLETIONS')
-            # pprint(completion)
-
             calibrated_prompt = build_downstream_prompt(
                 dataset_name=self.config.dataset.name,
                 question_text=question,
@@ -724,16 +830,6 @@ class Agent:
             else:
                 raise ValueError(
                     'Invalid dataset. Only medmcqa and pmcvqa are supported.')
-
-            # print('CALIBRATED DOWNSTREAM OUTPUT')
-            # pprint(calibrated_output)
-            # print('CALIBRATED ANSWER')
-            # print(f"{calibrated_answer} (correct answer is {gt_answer})")
-
-            # print('BASELINE DOWNSTREAM OUTPUT')
-            # pprint(baseline_output)
-            # print('BASELINE ANSWER')
-            # print(f"{baseline_answer} (correct answer is {gt_answer})")
 
             baseline_lm_answers.append(baseline_answer)
             baseline_lm_probabilities.append(baseline_prob)
