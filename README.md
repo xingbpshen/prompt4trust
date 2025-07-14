@@ -34,13 +34,13 @@ For example, the `{REPO_NAME}` can be `Qwen/Qwen2.5-1.5B-Instruct` and `{SAVE_FO
 ### 1.1 Installation
 It is recommended to use a virtual environment (e.g., `venv`) to avoid package conflicts. Here we assume you are using `venv` as your virtual environment. If you are using `conda`, please adjust the commands accordingly.
 ```bash
-git clone https://github.com/xingbpshen/vccrl-llm.git
-cd vccrl-llm/
+git clone https://github.com/xingbpshen/prompt4trust.git
+cd prompt4trust/
 pip install -r requirements.txt
 ```
 
 ### 1.2 Downloading datasets
-Create a `data/` folder under the project root `vccrl-llm/`:
+Create a `data/` folder under the project root `prompt4trust/`:
 ```bash
 mkdir data/
 ```
