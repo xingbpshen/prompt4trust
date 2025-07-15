@@ -15,7 +15,8 @@ This repository contains the official implementation of the paper:
 > __Prompt4Trust: A Reinforcement Learning Prompt Augmentation Framework for Clinically-Aligned Confidence Calibration in Multimodal Large Language Models__  
 > [Anita Kriz*](https://scholar.google.com/citations?view_op=list_works&hl=en&hl=en&user=EDKX_QgAAAAJ), [Elizabeth Laura Janes*](https://scholar.google.com/citations?user=O41pk_EAAAAJ&hl=en), [Xing Shen*](https://scholar.google.com/citations?hl=en&user=U69NqfQAAAAJ), [Tal Arbel](https://www.cim.mcgill.ca/~arbel/)  
 > _*Equal contribution_  
-> _IEEE/CVF International Conference on Computer Vision 2025 Workshop CVAMD_
+> _IEEE/CVF International Conference on Computer Vision 2025 Workshop CVAMD_  
+> __Paper ([arXiv](https://arxiv.org/abs/2507.09279))__
 
 
 ## Before you start
