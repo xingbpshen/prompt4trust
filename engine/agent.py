@@ -580,11 +580,11 @@ class Agent:
         # filter for valid samples only (i.e answer != -1 and conf != 1e-12)
         valid_mask_calibrated = filter_valid_samples(
             gt_answers, calibrated_lm_answers, calibrated_lm_probabilities)
-        valid_calibrated_count = np.sum(valid_mask_calibrated)
+        valid_calibrated_count = int(np.sum(valid_mask_calibrated))
 
         valid_mask_baseline = filter_valid_samples(
             gt_answers, baseline_lm_answers, baseline_lm_probabilities)
-        valid_baseline_count = np.sum(valid_mask_baseline)
+        valid_baseline_count = int(np.sum(valid_mask_baseline))
 
         # valid samples only metrics
         calibrated_acc_valid = compute_accuracy(
