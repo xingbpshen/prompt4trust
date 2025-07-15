@@ -207,6 +207,8 @@ def is_supported_closed_source_model(model_name):
 
 
 def convert_letter_to_idx(letter: str) -> int:
+    if type(letter) is int and letter == -1: 
+        return -1
     letter = letter.upper()
     if letter == 'A':
         return 1

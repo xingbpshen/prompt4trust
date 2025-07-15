@@ -292,6 +292,10 @@ class Agent:
             "baseline_answer", "baseline_prob", "baseline_output"
         ]
 
+        if self.args.entropy: 
+            fieldnames.append("calibrated_entropy")
+            fieldnames.append("baseline_entropy")
+
         # Use `with` to guarantee flush and close even if crash occurs
         with open(csv_path, "a", newline="") as csv_file:
             csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -421,8 +425,109 @@ class Agent:
                     baseline_lm_answers.append(baseline_answer)
                     baseline_lm_probabilities.append(baseline_prob)
 
+                    if self.args.entropy:
+                        # Implement uncertainty quantification, referencing: [1] Q.
+                        # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
+                        # Use default of 40 MC samples (consistent with Lyu et al.)
+
+                        mc_samples = 40 # TODO: Make this configurable
+
+                        opt_count = len(options)
+
+                        cal_opt_freq = np.zeros((opt_count))
+                        base_opt_freq = np.zeros((opt_count))
+                        for mc_sample in tqdm(range(mc_samples)):
+
+                            if self.config.dataset.name == 'medmcqa':
+                                ent_calibrated_output = self.send_message_downstream(
+                                    {'role': 'user', 'content': calibrated_prompt})
+                                ent_baseline_output = self.send_message_downstream(
+                                    {'role': 'user', 'content': baseline_prompt})
+                                ent_calibrated_answer, ent_calibrated_prob = parse_answer_prob(
+                                    ent_calibrated_output)
+                                ent_baseline_answer, ent_baseline_prob = parse_answer_prob(
+                                    ent_baseline_output)
+
+                            elif self.config.dataset.name == 'pmcvqa':
+                                ent_calibrated_output = self.send_message_downstream(
+                                    {
+                                        'role': 'user',
+                                        'content': [
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {
+                                                    "url": image_url,
+                                                }
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": calibrated_prompt,
+                                            }
+                                        ]
+                                    }
+                                )
+
+                                ent_baseline_output = self.send_message_downstream(
+                                    {
+                                        'role': 'user',
+                                        'content': [
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {
+                                                    "url": image_url,
+                                                }
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": baseline_prompt,
+                                            }
+                                        ]
+                                    }
+                                )
+
+                                ent_baseline_answer, ent_baseline_prob = parse_answer_prob_vqa(
+                                    ent_baseline_output)
+                                ent_calibrated_answer, ent_calibrated_prob = parse_answer_prob_vqa(
+                                    ent_calibrated_output)
+                                ent_baseline_answer, ent_baseline_prob = parse_answer_prob_vqa(
+                                    ent_baseline_output)
+
+                                ent_calibrated_answer = convert_letter_to_idx(ent_calibrated_answer)
+                                ent_baseline_answer = convert_letter_to_idx(ent_baseline_answer)
+                            
+                            else: 
+                                raise ValueError('Invalid dataset. Only MedMCQA and PMCVQA are supported.')
+
+                            # Don't count invalid responses (-1 or non-int format)
+                            if type(ent_calibrated_answer) == int and ent_calibrated_answer >= 0 and ent_calibrated_answer - 1 < opt_count:
+                                # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                                cal_opt_freq[ent_calibrated_answer - 1] += 1
+
+                            # Don't count invalid responses (-1 or non-int format)
+                            if type(ent_baseline_answer) == int and ent_baseline_answer >= 0 and ent_baseline_answer - 1 < opt_count:
+                                # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
+                                base_opt_freq[ent_baseline_answer - 1] += 1
+
+                        # Normalize frequencies based on number of valid answers
+                        cal_opt_freq = cal_opt_freq / np.sum(cal_opt_freq)
+                        base_opt_freq = base_opt_freq / np.sum(base_opt_freq)
+
+                        calibrated_option_entropy = np.zeros((opt_count))
+                        baseline_option_entropy = np.zeros((opt_count))
+                        for opt in range(opt_count):
+                            calibrated_option_entropy[opt] = cal_opt_freq[opt] * np.log(
+                                cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
+                            baseline_option_entropy[opt] = base_opt_freq[opt] * np.log(
+                                base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
+                        calibrated_sample_entropy = 1 - ((-1 / np.log(opt_count)) *
+                            np.sum(calibrated_option_entropy))
+                        baseline_sample_entropy = 1 - ((-1 / np.log(opt_count)) * np.sum(baseline_option_entropy))
+
+                        calibrated_entropies.append(calibrated_sample_entropy)
+                        baseline_entropies.append(baseline_sample_entropy)
+
                     # Write to CSV
-                    csv_writer.writerow({
+                    writerow = {
                         "index": i,
                         "image_path": image_path,
                         "question": question,
@@ -433,7 +538,12 @@ class Agent:
                         "baseline_answer": baseline_answer,
                         "baseline_prob": baseline_prob,
                         "baseline_output": baseline_output
-                    })
+                    }
+                    if self.args.entropy: 
+                        writerow["calibrated_entropy"] = calibrated_sample_entropy
+                        writerow["baseline_entropy"] = baseline_sample_entropy
+
+                    csv_writer.writerow(writerow)
 
                     # Ensure data is written to disk
                     csv_file.flush()
@@ -442,111 +552,6 @@ class Agent:
                 except Exception as e:
                     print(f"Error on index {i}: {e}")
                     continue
-
-                if self.args.entropy:
-                    # Implement uncertainty quantification, referencing: [1] Q.
-                    # Lyu et al., “Calibrating Large Language Models with Sample Consistency”.
-                    # Use default of 40 MC samples (consistent with Lyu)
-
-                    # TODO: update to handle saving to CSV in case eval needs to be stopped and resumed
-
-                    mc_samples = 40 # TODO: Make this configurable
-
-                    opt_count = len(options)
-
-                    cal_opt_freq = np.zeros((opt_count))
-                    base_opt_freq = np.zeros((opt_count))
-                    for mc_sample in tqdm(range(mc_samples)):
-
-                        if self.config.dataset.name == 'medmcqa':
-                            calibrated_output = self.send_message_downstream(
-                                {'role': 'user', 'content': calibrated_prompt})
-                            baseline_output = self.send_message_downstream(
-                                {'role': 'user', 'content': baseline_prompt})
-                            calibrated_answer, calibrated_prob = parse_answer_prob(
-                                calibrated_output)
-                            baseline_answer, baseline_prob = parse_answer_prob(
-                                baseline_output)
-
-                        elif self.config.dataset.name == 'pmcvqa':
-                            calibrated_output = self.send_message_downstream(
-                                {
-                                    'role': 'user',
-                                    'content': [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": image_url,
-                                            }
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": calibrated_prompt,
-                                        }
-                                    ]
-                                }
-                            )
-
-                            baseline_output = self.send_message_downstream(
-                                {
-                                    'role': 'user',
-                                    'content': [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": image_url,
-                                            }
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": baseline_prompt,
-                                        }
-                                    ]
-                                }
-                            )
-
-                            baseline_answer, baseline_prob = parse_answer_prob_vqa(
-                                baseline_output)
-                            calibrated_answer, calibrated_prob = parse_answer_prob_vqa(
-                                calibrated_output)
-                            baseline_answer, baseline_prob = parse_answer_prob_vqa(
-                                baseline_output)
-
-                            calibrated_answer = convert_letter_to_idx(
-                                calibrated_answer)
-                            baseline_answer = convert_letter_to_idx(
-                                baseline_answer)
-
-                        # Don't count invalid responses (-1 or non-int format)
-                        if type(calibrated_answer) == int and calibrated_answer >= 0 and calibrated_answer - 1 < opt_count:
-                            # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
-                            cal_opt_freq[calibrated_answer - 1] += 1
-
-                        # Don't count invalid responses (-1 or non-int format)
-                        if type(baseline_answer) == int and baseline_answer >= 0 and baseline_answer - 1 < opt_count:
-                            # Subtract 1 for indexing since multiple choice answer numbers are not zero-indexed
-                            base_opt_freq[baseline_answer - 1] += 1
-
-                    # Normalize frequencies based on number of valid answers
-                    cal_opt_freq = cal_opt_freq / np.sum(cal_opt_freq)
-                    base_opt_freq = base_opt_freq / np.sum(base_opt_freq)
-
-                    calibrated_option_entropy = np.zeros((opt_count))
-                    baseline_option_entropy = np.zeros((opt_count))
-                    for opt in range(opt_count):
-                        calibrated_option_entropy[opt] = cal_opt_freq[opt] * np.log(
-                            cal_opt_freq[opt]) if cal_opt_freq[opt] != 0 else 0
-                        baseline_option_entropy[opt] = base_opt_freq[opt] * np.log(
-                            base_opt_freq[opt]) if base_opt_freq[opt] != 0 else 0
-                    calibrated_sample_entropy = 1 - ((-1 / np.log(opt_count)) *
-                         np.sum(calibrated_option_entropy))
-                    baseline_sample_entropy = 1 - ((-1 / np.log(opt_count)) * np.sum(baseline_option_entropy))
-
-                    print(f'CALIBRATED ENTROPY: {calibrated_sample_entropy, cal_opt_freq}')
-                    print(f'BASELINE ENTROPY: {baseline_sample_entropy, base_opt_freq}')
-
-                    calibrated_entropies.append(calibrated_sample_entropy)
-                    baseline_entropies.append(baseline_sample_entropy)
 
         csv_file.close()
         logs_df = pd.read_csv(csv_path)
@@ -628,78 +633,50 @@ class Agent:
         baseline_confidence_std_valid = np.std(
             np.array(baseline_lm_probabilities)[valid_mask_baseline]
         )
+        
+        results = {
+            "calibrated_accuracy": calibrated_acc,
+            "calibrated_ece": calibrated_ece,
+            "calibrated_brier": calibrated_brier,
+            "calibrated_confidence_avg": calibrated_confidence_avg,
+            "calibrated_confidence_std": calibrated_confidence_std,
+
+            "baseline_accuracy": baseline_acc,
+            "baseline_ece": baseline_ece,
+            "baseline_brier": baseline_brier,
+            "baseline_confidence_avg": baseline_confidence_avg,
+            "baseline_confidence_std": baseline_confidence_std,
+
+            "calibrated_valid_count": valid_calibrated_count,
+            "calibrated_accuracy_valid": calibrated_acc_valid,
+            "calibrated_ece_valid": calibrated_ece_valid,
+            "calibrated_brier_valid": calibrated_brier_valid,
+            "calibrated_confidence_avg_valid": calibrated_confidence_avg_valid,
+            "calibrated_confidence_std_valid": calibrated_confidence_std_valid,
+
+            "baseline_valid_count": valid_baseline_count,
+            "baseline_accuracy_valid": baseline_acc_valid,
+            "baseline_ece_valid": baseline_ece_valid,
+            "baseline_brier_valid": baseline_brier_valid,
+            "baseline_confidence_avg_valid": baseline_confidence_avg_valid,
+            "baseline_confidence_std_valid": baseline_confidence_std_valid,
+
+            "checkpoint": self.checkpoint_path,
+        }
 
         # 5. Log Metrics
         if self.args.entropy:
-            calibrated_entropy_mean = np.nanmean(calibrated_entropies)
-            baseline_entropy_mean = np.nanmean(baseline_entropies)
+            calibrated_entropy_mean = np.nanmean(logs_df["calibrated_entropy"])
+            baseline_entropy_mean = np.nanmean(logs_df["baseline_entropy"])
 
-            results = {
-                "calibrated_accuracy": calibrated_acc,
-                "calibrated_ece": calibrated_ece,
-                "calibrated_brier": calibrated_brier,
-                "calibrated_confidence_avg": calibrated_confidence_avg,
-                "calibrated_confidence_std": calibrated_confidence_std,
-                "calibrated_entropy_mean": calibrated_entropy_mean,
+            results["calibrated_entropy_mean"] = calibrated_entropy_mean
+            results["baseline_entropy_mean"] = baseline_entropy_mean
 
-                "baseline_accuracy": baseline_acc,
-                "baseline_ece": baseline_ece,
-                "baseline_brier": baseline_brier,
-                "baseline_confidence_avg": baseline_confidence_avg,
-                "baseline_confidence_std": baseline_confidence_std,
-                "baseline_entropy_mean": baseline_entropy_mean,
+        with open(log_file, "w") as f:
+            json.dump(results, f, indent=4)
 
-                "calibrated_valid_count": valid_calibrated_count,
-                "calibrated_accuracy_valid": calibrated_acc_valid,
-                "calibrated_ece_valid": calibrated_ece_valid,
-                "calibrated_brier_valid": calibrated_brier_valid,
-                "calibrated_confidence_avg_valid": calibrated_confidence_avg_valid,
-                "calibrated_confidence_std_valid": calibrated_confidence_std_valid,
+        print(f"Metric Results saved to {log_file}")
 
-                "baseline_valid_count": valid_baseline_count,
-                "baseline_accuracy_valid": baseline_acc_valid,
-                "baseline_ece_valid": baseline_ece_valid,
-                "baseline_brier_valid": baseline_brier_valid,
-                "baseline_confidence_avg_valid": baseline_confidence_avg_valid,
-                "baseline_confidence_std_valid": baseline_confidence_std_valid,
-
-                "checkpoint": self.checkpoint_path,
-            }
-        else:
-            results = {
-                "calibrated_accuracy": calibrated_acc,
-                "calibrated_ece": calibrated_ece,
-                "calibrated_brier": calibrated_brier,
-                "calibrated_confidence_avg": calibrated_confidence_avg,
-                "calibrated_confidence_std": calibrated_confidence_std,
-
-                "baseline_accuracy": baseline_acc,
-                "baseline_ece": baseline_ece,
-                "baseline_brier": baseline_brier,
-                "baseline_confidence_avg": baseline_confidence_avg,
-                "baseline_confidence_std": baseline_confidence_std,
-
-                "calibrated_valid_count": valid_calibrated_count,
-                "calibrated_accuracy_valid": calibrated_acc_valid,
-                "calibrated_ece_valid": calibrated_ece_valid,
-                "calibrated_brier_valid": calibrated_brier_valid,
-                "calibrated_confidence_avg_valid": calibrated_confidence_avg_valid,
-                "calibrated_confidence_std_valid": calibrated_confidence_std_valid,
-
-                "baseline_valid_count": valid_baseline_count,
-                "baseline_accuracy_valid": baseline_acc_valid,
-                "baseline_ece_valid": baseline_ece_valid,
-                "baseline_brier_valid": baseline_brier_valid,
-                "baseline_confidence_avg_valid": baseline_confidence_avg_valid,
-                "baseline_confidence_std_valid": baseline_confidence_std_valid,
-
-                "checkpoint": self.checkpoint_path,
-            }
-
-            with open(log_file, "w") as f:
-                json.dump(results, f, indent=4)
-
-            print(f"Metric Results saved to {log_file}")
     def eval_stable(self):
 
         # 1. Load model and tokenizer from checkpoint
@@ -714,7 +691,7 @@ class Agent:
             args=self.args,
             config=self.config,
             # TODO change this hard coding
-            split=self.config.dataset.split_names[2]
+            split=self.config.dataset.split_names[1]
         )
         # 3. Loop through examples and generate completions, then send to downstream model
         calibrated_lm_answers = []
