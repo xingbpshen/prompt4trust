@@ -32,7 +32,7 @@ train:  # for more details, please refer to the GRPOConfig class from TRL
   save_steps: 200
   gen_temperature: 0.6
   top_p: 0.95
-  top_k: 50
+  top_k: 100
   use_vllm: true  # do not change this
   learning_rate: 1e-6
   scale_rewards: false  # The [Dr. GRPO] paper recommends not scaling the rewards
