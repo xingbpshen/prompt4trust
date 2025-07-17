@@ -60,15 +60,7 @@ def main():
             ]
             util.info('main.py', f"Launching vLLM with command: {' '.join(command)}")
 
-            downstream_proc = subprocess.Popen(["vllm",
-                                                "serve",
-                                                config.model.downstream,
-                                                f"--gpu_memory_utilization={config.resources.downstream_gpu_memory_utilization}",
-                                                f"--tensor_parallel_size={num_gpus}",
-                                                f"--host=localhost",
-                                                f"--port={config.resources.downstream_port}",
-                                                f"--allowed-local-media-path={config.dataset.image_root}",
-                                                f"--dtype={dtype}"],
+            downstream_proc = subprocess.Popen(command,
                                                env=env2,
                                                stdout=subprocess.DEVNULL,
                                                stderr=subprocess.DEVNULL,
