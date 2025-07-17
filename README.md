@@ -88,4 +88,3 @@ This work was supported in part by the Natural Sciences and Engineering Research
 
 ## Contact
 Please raise a GitHub issue or email us at <a href="mailto:xing.shen@mail.mcgill.com">xing.shen@mail.mcgill.com</a> (with the email subject starting with "[Prompt4Trust]") if you have any question or encounter any issue.
-
