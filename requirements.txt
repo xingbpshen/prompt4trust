@@ -1,8 +1,8 @@
-python>=3.10
+python~=3.10.11
+torch~=2.7.0
 trl>=0.16
-torch
+vllm~=0.9.1
 numpy
 tqdm
 notebook
-vllm
 openai
