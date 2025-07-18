@@ -7,6 +7,7 @@ Prompt4Trust
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10.11-blue.svg" alt="Python Version"></a>
   <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.7.0-red.svg" alt="PyTorch Version"></a>
   <a href="https://docs.vllm.ai/en/v0.9.1/"><img src="https://img.shields.io/badge/vLLM-0.9.1-54a0f8.svg" alt="vLLM Version"></a>
+  <a href="https://huggingface.co/docs/trl/en/index/"><img src="https://img.shields.io/badge/TRL-0.16.1-e933bc.svg" alt="TRL Version"></a>
 </p>
 
 This repository contains the official implementation of the paper:
@@ -18,7 +19,9 @@ This repository contains the official implementation of the paper:
 
 ## Overview
 Multimodal large language models (MLLMs) show great potential for healthcare applications, but their clinical deployment is challenged by prompt sensitivity and overconfident incorrect responses. To improve trustworthiness in safety-critical settings, we introduce **Prompt4Trust**, the first reinforcement learning framework for prompt augmentation focused on confidence calibration in MLLMs. A lightweight LLM is trained to generate context-aware auxiliary prompts that guide a downstream MLLM to produce predictions with confidence scores that better reflect true accuracy. By prioritizing clinically meaningful calibration, Prompt4Trust enhances both reliability and task performance, achieving state-of-the-art results on the PMC-VQA benchmark while enabling efficient zero-shot generalization to larger MLLMs.
-![fig](./assets/fig.png)
+<p align="center">
+  <img src="./assets/fig.png" alt="fig" width="75%"/>
+</p>
 
 ## Before you start
 Make sure you have at least **4** NVIDIA GPUs with adequate memory (memory requirement depends on the scale of the LLM/MLLM you want to use) if you wish to use open-source downstream task MLLMs.
