@@ -16,6 +16,9 @@ This repository contains the official implementation of the paper:
 > _IEEE/CVF International Conference on Computer Vision 2025 Workshop CVAMD_  
 > __Paper ([arXiv preprint](https://arxiv.org/abs/2507.09279))__
 
+## Overview
+Multimodal large language models (MLLMs) show great potential for healthcare applications, but their clinical deployment is challenged by prompt sensitivity and overconfident incorrect responses. To improve trustworthiness in safety-critical settings, we introduce **Prompt4Trust**, the first reinforcement learning framework for prompt augmentation focused on confidence calibration in MLLMs. A lightweight LLM is trained to generate context-aware auxiliary prompts that guide a downstream MLLM to produce predictions with confidence scores that better reflect true accuracy. By prioritizing clinically meaningful calibration, Prompt4Trust enhances both reliability and task performance, achieving state-of-the-art results on the PMC-VQA benchmark while enabling efficient zero-shot generalization to larger MLLMs.
+![fig](./assets/fig.png)
 
 ## Before you start
 Make sure you have at least **4** NVIDIA GPUs with adequate memory (memory requirement depends on the scale of the LLM/MLLM you want to use) if you wish to use open-source downstream task MLLMs.
