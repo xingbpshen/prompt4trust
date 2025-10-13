@@ -69,7 +69,7 @@ Here are some important parameters you may want to modify:
 Please note that `resources.policy_cuda`, `resources.action_cuda`, and `resources.downstream_cuda` **must not include any overlapping device** to avoid CUDA initialization error.
 
 ## 2. Training
-You can skip this step if you have already downloaded our trained [CGP Generator](https://huggingface.co/xingshen/prompt4trust-cgpgenerator-1.5B).
+You can skip this step if you have already downloaded our trained [CGP Generator](https://huggingface.co/xingshen/prompt4trust-cgpgenerator-1.5B) from Hugging Face 🤗.
 
 ### 2.1 About vLLM serving
 To enable TRL with vLLM serving, we need to start **2** servers: one for the policy model (to sample action) and one for the downstream LLM to calculate reward.
