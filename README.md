@@ -15,7 +15,7 @@ This repository contains the official implementation of the paper:
 > [Anita Kriz*](https://scholar.google.com/citations?view_op=list_works&hl=en&hl=en&user=EDKX_QgAAAAJ), [Elizabeth Laura Janes*](https://scholar.google.com/citations?user=O41pk_EAAAAJ&hl=en), [Xing Shen*](https://scholar.google.com/citations?hl=en&user=U69NqfQAAAAJ), [Tal Arbel](https://www.cim.mcgill.ca/~arbel/)  
 > _*Equal contribution_  
 > _IEEE/CVF International Conference on Computer Vision 2025 Workshop CVAMD_  
-> __Paper ([arXiv preprint](https://arxiv.org/abs/2507.09279))__
+> __Paper ([arXiv preprint](https://arxiv.org/abs/2507.09279)), [BibTeX](./assets/citation.bib)__
 
 ## Overview
 Multimodal large language models (MLLMs) show great potential for healthcare applications, but their clinical deployment is challenged by prompt sensitivity and overconfident incorrect responses. To improve trustworthiness in safety-critical settings, we introduce **Prompt4Trust**, the first reinforcement learning framework for prompt augmentation focused on confidence calibration in MLLMs. A lightweight LLM is trained to generate context-aware auxiliary prompts that guide a downstream MLLM to produce predictions with confidence scores that better reflect true accuracy. By prioritizing clinically meaningful calibration, Prompt4Trust enhances both reliability and task performance, achieving state-of-the-art results on the PMC-VQA benchmark while enabling efficient zero-shot generalization to larger MLLMs.
@@ -94,6 +94,18 @@ python main.py --config {DATASET}.yml --log_folder {LOG_FOLDER} --trial_name {TR
 
 ## Acknowledgments
 This work was supported in part by the Natural Sciences and Engineering Research Council of Canada, in part by the Canadian Institute for Advanced Research (CIFAR) Artificial Intelligence Chairs Program, in part by the Mila - Quebec Artificial Intelligence Institute, in part by the compute resources provided by Mila (mila.quebec), in part by the Mila-Google Research Grant, in part by the Fonds de recherche du Québec, in part by the Canada First Research Excellence Fund, awarded to the Healthy Brains, Healthy Lives initiative at McGill University, and in part by the Department of Electrical and Computer Engineering at McGill University.
+
+## Citation
+If you find this repository useful for your research, please consider citing our paper:
+```bibtex
+@inproceedings{kriz2025prompt4trust,
+  title={Prompt4Trust: A Reinforcement Learning Prompt Augmentation Framework for Clinically-Aligned Confidence Calibration in Multimodal Large Language Models},
+  author={Kriz, Anita and Janes, Elizabeth Laura and Shen, Xing and Arbel, Tal},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops},
+  pages={1320--1329},
+  year={2025}
+}
+```
 
 ## Contact
 Please raise a GitHub issue or email us at <a href="mailto:xing.shen@mail.mcgill.ca">xing.shen@mail.mcgill.ca</a> (with the email subject starting with "[Prompt4Trust]") if you have any question or encounter any issue.
