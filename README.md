@@ -102,7 +102,7 @@ If you find this repository useful for your research, please consider citing our
   title={Prompt4Trust: A Reinforcement Learning Prompt Augmentation Framework for Clinically-Aligned Confidence Calibration in Multimodal Large Language Models},
   author={Kriz, Anita and Janes, Elizabeth Laura and Shen, Xing and Arbel, Tal},
   booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops},
-  pages={1320--1329},
+  pages={1331--1340},
   year={2025}
 }
 ```
